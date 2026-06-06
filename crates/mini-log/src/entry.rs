@@ -27,7 +27,10 @@ impl<'a> Entry<'a> {
             return;
         }
 
-        let rendered = self.render();
+        let rendered = match self.logger.format {
+            crate::Format::Conventional => self.render(),
+            crate::Format::Json => self.render_json(),
+        };
         if let Ok(mut guard) = self.logger.out.lock() {
             use std::io::Write;
             let _ = writeln!(guard, "{rendered}");
