@@ -13,12 +13,26 @@ use tokio::net::TcpListener;
 
 use crate::error::ServeError;
 use crate::handler::{Handler, ResponseBody};
-use crate::router::Router;
+use crate::router::{QueryParams, Router};
 use crate::state::State;
 
 pub struct App<S> {
     state:  Arc<S>,
     router: Arc<Router<S>>,
+}
+
+fn parse_query(query: Option<&str>) -> QueryParams {
+    let mut map = std::collections::HashMap::new();
+    if let Some(query) = query {
+        for pair in query.split('&').filter(|s| !s.is_empty()) {
+            if let Some((key, value)) = pair.split_once('=') {
+                map.insert(key.to_string(), value.to_string());
+            } else {
+                map.insert(pair.to_string(), String::new());
+            }
+        }
+    }
+    QueryParams(map)
 }
 
 fn error_response(code: u16, message: &str) -> Response<ResponseBody> {
@@ -46,9 +60,12 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
 
         let path_exists = self.router.has_path(&path);
 
+        let query_params = parse_query(req.uri().query());
+
         match self.router.match_route(&method, &path) {
             Some((handler, params)) => {
                 let mut req = req;
+                req.extensions_mut().insert(query_params);
                 req.extensions_mut().insert(params);
                 match handler(req, state).await {
                     Ok(resp) => resp,

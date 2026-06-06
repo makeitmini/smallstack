@@ -8,6 +8,10 @@ use crate::handler::Handler;
 #[derive(Clone, Debug, Default)]
 pub struct PathParams(pub HashMap<String, String>);
 
+/// Query parameter storage — inserted into request extensions during routing.
+#[derive(Clone, Debug, Default)]
+pub struct QueryParams(pub HashMap<String, String>);
+
 #[derive(Default)]
 pub struct Router<S> {
     root: Node<S>,
