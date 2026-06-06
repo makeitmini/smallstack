@@ -73,7 +73,22 @@ fn from_io_error_code_is_500() {
     assert_eq!(err.code(), 500);
 }
 
-// --- 0.1.1 ---
+// --- 0.2.0 ---
+
+#[test]
+fn io_errors_with_same_kind_and_scope_are_equal() {
+    let a = Error::Io {
+        cause: std::io::Error::new(std::io::ErrorKind::NotFound, "file a"),
+        scope: "fs",
+    };
+    let b = Error::Io {
+        cause: std::io::Error::new(std::io::ErrorKind::NotFound, "file b"),
+        scope: "fs",
+    };
+    assert_eq!(a, b);
+}
+
+/// --- 0.1.1 ---
 
 #[test]
 fn parse_int_error_converts_to_bad() {

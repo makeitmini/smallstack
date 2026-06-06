@@ -81,6 +81,9 @@ impl From<std::string::FromUtf8Error> for Error {
     }
 }
 
+/// Display format: `{scope}:{kind}: {msg}`  e.g. `parse:bad: missing field 'name'`
+///
+/// This format is stable. Downstream code may rely on it for parsing.
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match self {
@@ -95,3 +98,31 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// Equality for `Error`.
+///
+/// For `Io`, compares by `std::io::ErrorKind` and `scope` only —
+/// the inner `std::io::Error` does not implement `PartialEq`.
+/// For all other variants, compares by `msg` and `scope`.
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Error::Io { cause: a, scope: sa }, Error::Io { cause: b, scope: sb }) => {
+                a.kind() == b.kind() && sa == sb
+            }
+            (Error::Net { msg: a, scope: sa }, Error::Net { msg: b, scope: sb }) => {
+                a == b && sa == sb
+            }
+            (Error::Cfg { msg: a, scope: sa }, Error::Cfg { msg: b, scope: sb }) => {
+                a == b && sa == sb
+            }
+            (Error::Bad { msg: a, scope: sa }, Error::Bad { msg: b, scope: sb }) => {
+                a == b && sa == sb
+            }
+            (Error::Gone { msg: a, scope: sa }, Error::Gone { msg: b, scope: sb }) => {
+                a == b && sa == sb
+            }
+            _ => false,
+        }
+    }
+}
