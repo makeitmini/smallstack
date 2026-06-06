@@ -13,6 +13,7 @@ use tokio::net::TcpListener;
 
 use crate::error::ServeError;
 use crate::handler::{Handler, ResponseBody};
+use crate::middleware::Middleware;
 use crate::router::{QueryParams, Router};
 use crate::state::State;
 
@@ -151,16 +152,23 @@ impl App<()> {
 
 #[must_use = "RouteBuilder does nothing until .seal() is called"]
 pub struct RouteBuilder<S> {
-    state:  Arc<S>,
-    router: Router<S>,
+    state:      Arc<S>,
+    router:     Router<S>,
+    middleware: Vec<Middleware<S>>,
 }
 
 impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
     pub fn new(state: S) -> Self {
         RouteBuilder {
-            state:  Arc::new(state),
-            router: Router::new(),
+            state:      Arc::new(state),
+            router:     Router::new(),
+            middleware: Vec::new(),
         }
+    }
+
+    pub fn wrap(mut self, m: Middleware<S>) -> Self {
+        self.middleware.push(m);
+        self
     }
 
     pub fn get(mut self, path: &str, handler: Handler<S>) -> Self {
@@ -183,7 +191,9 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
         self
     }
 
-    pub fn seal(self) -> App<S> {
+    pub fn seal(mut self) -> App<S> {
+        let middleware = std::mem::take(&mut self.middleware);
+        self.router.apply_middleware(&middleware);
         App {
             state:  self.state,
             router: Arc::new(self.router),

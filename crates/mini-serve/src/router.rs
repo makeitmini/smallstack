@@ -157,6 +157,23 @@ impl<S: Clone + Send + Sync + 'static> Router<S> {
 
         node.handlers.get(method).map(|h| (h, params))
     }
+
+    pub fn apply_middleware(&mut self, middleware: &[crate::middleware::Middleware<S>]) {
+        for m in middleware {
+            self.root.apply_middleware(m);
+        }
+    }
+}
+
+impl<S> Node<S> {
+    fn apply_middleware(&mut self, m: &crate::middleware::Middleware<S>) {
+        for handler in self.handlers.values_mut() {
+            *handler = m(handler.clone());
+        }
+        for child in &mut self.children {
+            child.apply_middleware(m);
+        }
+    }
 }
 
 fn split_path(path: &str) -> Vec<String> {
