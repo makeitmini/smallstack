@@ -55,6 +55,16 @@ impl Error {
             Error::Gone { msg, .. } => msg.clone(),
         }
     }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Error::Io { .. }  => "io",
+            Error::Net { .. } => "net",
+            Error::Cfg { .. } => "cfg",
+            Error::Bad { .. } => "bad",
+            Error::Gone { .. } => "gone",
+        }
+    }
 }
 
 impl From<std::io::Error> for Error {
