@@ -1,5 +1,7 @@
 use mini_err::{Error, ErrorExt};
 
+// --- 0.1.0 ---
+
 #[test]
 fn bad_is_400() {
     let err = Error::bad("api", "invalid input");
@@ -69,4 +71,32 @@ fn from_io_error_code_is_500() {
     let io = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
     let err: Error = io.into();
     assert_eq!(err.code(), 500);
+}
+
+// --- 0.1.1 ---
+
+#[test]
+fn parse_int_error_converts_to_bad() {
+    let result: Result<i32, std::num::ParseIntError> = "not_a_number".parse();
+    let err: Error = result.unwrap_err().into();
+    assert!(matches!(err, Error::Bad { .. }));
+    assert_eq!(err.code(), 400);
+}
+
+#[test]
+fn utf8_error_converts_to_bad() {
+    let invalid = &[0xFF, 0xFE, 0x00][..];
+    let result = std::str::from_utf8(invalid);
+    let err: Error = result.unwrap_err().into();
+    assert!(matches!(err, Error::Bad { .. }));
+    assert_eq!(err.code(), 400);
+}
+
+#[test]
+fn from_utf8_error_converts_to_bad() {
+    let invalid = vec![0xFF, 0xFE];
+    let result = String::from_utf8(invalid);
+    let err: Error = result.unwrap_err().into();
+    assert!(matches!(err, Error::Bad { .. }));
+    assert_eq!(err.code(), 400);
 }

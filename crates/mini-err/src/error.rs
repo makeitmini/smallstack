@@ -63,6 +63,24 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<std::num::ParseIntError> for Error {
+    fn from(e: std::num::ParseIntError) -> Self {
+        Error::Bad { msg: e.to_string(), scope: "parse" }
+    }
+}
+
+impl From<std::str::Utf8Error> for Error {
+    fn from(e: std::str::Utf8Error) -> Self {
+        Error::Bad { msg: e.to_string(), scope: "utf8" }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for Error {
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        Error::Bad { msg: e.utf8_error().to_string(), scope: "utf8" }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match self {
