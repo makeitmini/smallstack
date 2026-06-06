@@ -42,6 +42,23 @@ fn field_appears_in_output_as_key_eq_value() {
 }
 
 #[test]
+fn duration_field_records_elapsed_time() {
+    let (log, buf) = test_logger();
+    let start = std::time::Instant::now();
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    log.info("operation").duration(start).emit();
+    let out = output(&buf);
+    assert!(out.contains("duration="), "expected duration= in output, got: {out}");
+    let dur_ms: u128 = out
+        .split("duration=")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.trim_end_matches("ms").parse().ok())
+        .unwrap_or(0);
+    assert!(dur_ms >= 10, "expected duration >= 10ms, got {dur_ms}ms");
+}
+
+#[test]
 fn eight_fields_all_appear_in_output() {
     let (log, buf) = test_logger();
     log.info("many_fields")

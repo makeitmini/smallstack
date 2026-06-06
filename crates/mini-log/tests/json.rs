@@ -44,6 +44,21 @@ fn json_output_is_valid_json() {
 }
 
 #[test]
+fn json_duration_appears_as_field() {
+    let (log, buf) = json_logger();
+    let start = std::time::Instant::now();
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    log.info("timed_op").duration(start).emit();
+    let out = output(&buf);
+    let trimmed = out.trim();
+    let value: serde_json::Value = serde_json::from_str(trimmed).unwrap();
+    let dur = value["duration"].as_str().unwrap_or("");
+    assert!(dur.ends_with("ms"), "expected duration ending in 'ms', got {dur}");
+    let ms: u128 = dur.trim_end_matches("ms").parse().unwrap_or(0);
+    assert!(ms >= 10, "expected duration >= 10ms, got {ms}ms");
+}
+
+#[test]
 fn json_format_round_trips_through_serde_json() {
     let (log, buf) = json_logger();
     log.info("request_received")

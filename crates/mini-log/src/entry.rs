@@ -11,6 +11,11 @@ pub struct Entry<'a> {
 }
 
 impl<'a> Entry<'a> {
+    pub fn duration(self, start: std::time::Instant) -> Self {
+        let ms = start.elapsed().as_millis();
+        self.field("duration", format!("{ms}ms"))
+    }
+
     pub fn field(mut self, key: &'static str, val: impl Display) -> Self {
         if self.count < 8 {
             self.fields[self.count] = Some((key, val.to_string()));
