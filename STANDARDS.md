@@ -32,6 +32,32 @@ through Cargo feature flags only:
 
 ---
 
+## Sibling Dependency Pattern
+
+Optional sibling deps use both `path` and `version` in Cargo.toml:
+
+```toml
+mini-err = { path = "../mini-err", version = "0.3", optional = true }
+```
+
+- `path` directs cargo to the local crate during development.
+- `version` is what ships to crates.io — `cargo publish` strips `path`.
+
+**Version drift risk**: `version = "0.3"` means `>=0.3.0, <0.4.0`. If `mini-err`
+bumps to `0.4.0`, the dep won't pick it up. Locally `path` overrides this, so
+`cargo test` will pass while the published constraint is too narrow.
+
+**Pre-publish check**: Before publishing a crate with sibling deps, run:
+
+```
+cargo publish -p <crate> --dry-run
+```
+
+This validates that the version constraints resolve against crates.io. CI
+should include this check for any crate that has sibling dep entries.
+
+---
+
 ## Commenting Standards
 
 1. **Comments must stay accurate** — update or remove stale comments in the

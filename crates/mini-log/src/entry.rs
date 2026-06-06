@@ -11,6 +11,14 @@ pub struct Entry<'a> {
 }
 
 impl<'a> Entry<'a> {
+    #[cfg(feature = "err")]
+    pub fn err(self, error: &mini_err::Error) -> Self {
+        self.field("err_scope", error.scope())
+            .field("err_kind", error.kind())
+            .field("err_msg", error.message())
+            .field("err_code", error.code().to_string())
+    }
+
     pub fn duration(self, start: std::time::Instant) -> Self {
         let ms = start.elapsed().as_millis();
         self.field("duration", format!("{ms}ms"))

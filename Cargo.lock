@@ -24,8 +24,9 @@ dependencies = [
 
 [[package]]
 name = "mini-log"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
+ "mini-err",
  "serde_json",
 ]
 
