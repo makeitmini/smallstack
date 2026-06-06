@@ -1,5 +1,4 @@
 use hyper::Response;
-use http_body_util::Full;
 use hyper::body::Bytes;
 use mini_serve::{get_header, handler, parse_cookies, RouteBuilder, ServeError};
 
@@ -9,7 +8,7 @@ async fn handle_echo_header(
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let val = get_header(&req, "x-custom").unwrap_or("none");
     let body = serde_json::json!({ "x-custom": val });
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 async fn handle_echo_cookies(
@@ -18,7 +17,7 @@ async fn handle_echo_cookies(
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let cookies = parse_cookies(&req);
     let body = serde_json::json!(cookies);
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 #[tokio::test]

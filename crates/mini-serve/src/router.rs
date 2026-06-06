@@ -189,12 +189,11 @@ mod tests {
     use super::*;
     use crate::error::ServeError;
     use hyper::Response;
-    use http_body_util::Full;
     use hyper::body::Bytes;
 
     fn dummy_handler() -> Handler<()> {
         crate::handler::handler(|_, _| async {
-            Ok::<_, ServeError>(Response::new(Full::new(Bytes::from("ok"))))
+            Ok::<_, ServeError>(Response::new(crate::handler::body(Bytes::from("ok"))))
         })
     }
 

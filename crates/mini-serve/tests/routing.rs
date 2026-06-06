@@ -1,13 +1,12 @@
 use hyper::{Response, StatusCode};
-use http_body_util::Full;
 use hyper::body::Bytes;
-use mini_serve::{handler, RouteBuilder, ServeError};
+use mini_serve::{body, handler, RouteBuilder, ServeError};
 
 async fn handle_hello(
     _req: hyper::Request<hyper::body::Incoming>,
     _state: mini_serve::State<()>,
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
-    Ok(Response::new(Full::new(Bytes::from("hello"))))
+Ok(Response::new(body(Bytes::from("hello"))))
 }
 
 async fn handle_create(
@@ -16,7 +15,7 @@ async fn handle_create(
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let resp = Response::builder()
         .status(StatusCode::CREATED)
-        .body(Full::new(Bytes::from("created")))
+        .body(body(Bytes::from("created")))
         .unwrap();
     Ok(resp)
 }
@@ -28,7 +27,7 @@ async fn handle_user(
     let params = req.extensions().get::<mini_serve::PathParams>().cloned().unwrap_or_default();
     let id = params.0.get("id").cloned().unwrap_or_default();
     let body = serde_json::json!({ "id": id });
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 async fn handle_files(
@@ -38,7 +37,7 @@ async fn handle_files(
     let params = req.extensions().get::<mini_serve::PathParams>().cloned().unwrap_or_default();
     let rest = params.0.get("*").cloned().unwrap_or_default();
     let body = serde_json::json!({ "path": rest });
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 #[tokio::test]

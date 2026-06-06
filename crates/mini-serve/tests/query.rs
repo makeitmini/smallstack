@@ -1,5 +1,4 @@
 use hyper::Response;
-use http_body_util::Full;
 use hyper::body::Bytes;
 use mini_serve::{handler, QueryParams, RouteBuilder, ServeError};
 
@@ -9,7 +8,7 @@ async fn handle_echo_query(
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let params = req.extensions().get::<QueryParams>().cloned().unwrap_or_default();
     let body = serde_json::json!(params.0);
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 #[tokio::test]
@@ -73,7 +72,7 @@ async fn query_params_are_present_even_on_404() {
         let params = req.extensions().get::<QueryParams>().cloned().unwrap_or_default();
         let q = params.0.get("q").cloned().unwrap_or_default();
         let body = serde_json::json!({ "q": q });
-        Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+        Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
     }
 
     // Register a catch-all so we can inspect query params on a different path

@@ -1,5 +1,4 @@
 use hyper::Response;
-use http_body_util::Full;
 use hyper::body::Bytes;
 use serde::Deserialize;
 use mini_serve::{handler, json_body, RouteBuilder, ServeError};
@@ -16,7 +15,7 @@ async fn handle_create(
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let user: CreateUser = json_body(req).await?;
     let body = serde_json::json!({ "name": user.name, "email": user.email });
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 async fn handle_echo_json(
@@ -24,7 +23,7 @@ async fn handle_echo_json(
     _state: mini_serve::State<()>,
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let value: serde_json::Value = json_body(req).await?;
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&value).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&value).unwrap()))))
 }
 
 #[tokio::test]

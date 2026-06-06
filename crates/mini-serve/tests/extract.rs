@@ -1,5 +1,4 @@
 use hyper::Response;
-use http_body_util::Full;
 use hyper::body::Bytes;
 use serde::Deserialize;
 use mini_serve::{handler, path_params, RouteBuilder, ServeError};
@@ -15,7 +14,7 @@ async fn handle_user(
 ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
     let path: UserPath = path_params(&req)?;
     let body = serde_json::json!({ "id": path.id });
-    Ok(Response::new(Full::new(Bytes::from(serde_json::to_string(&body).unwrap()))))
+    Ok(Response::new(mini_serve::body(Bytes::from(serde_json::to_string(&body).unwrap()))))
 }
 
 #[tokio::test]

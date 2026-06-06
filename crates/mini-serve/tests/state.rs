@@ -1,9 +1,8 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use hyper::{Response, StatusCode};
-use http_body_util::Full;
 use hyper::body::Bytes;
-use mini_serve::{handler, RouteBuilder, ServeError, State};
+use mini_serve::{body, handler, RouteBuilder, ServeError, State};
 
 async fn read_state(
     _req: hyper::Request<hyper::body::Incoming>,
@@ -12,7 +11,7 @@ async fn read_state(
     let val = *state;
     let resp = Response::builder()
         .status(StatusCode::OK)
-        .body(Full::new(Bytes::from(val.to_string())))
+        .body(body(Bytes::from(val.to_string())))
         .unwrap();
     Ok(resp)
 }
@@ -24,7 +23,7 @@ async fn increment_and_read(
     let prev = state.fetch_add(1, Ordering::SeqCst);
     let resp = Response::builder()
         .status(StatusCode::OK)
-        .body(Full::new(Bytes::from(prev.to_string())))
+        .body(body(Bytes::from(prev.to_string())))
         .unwrap();
     Ok(resp)
 }

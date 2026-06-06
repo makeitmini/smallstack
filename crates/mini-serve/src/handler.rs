@@ -1,16 +1,21 @@
+use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use hyper::body::Incoming;
+use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
+use http_body_util::combinators::BoxBody;
 use http_body_util::Full;
-use hyper::body::Bytes;
 
 use crate::error::ServeError;
 use crate::state::State;
 
-pub type ResponseBody = Full<Bytes>;
+pub type ResponseBody = BoxBody<Bytes, Infallible>;
+
+pub fn body(bytes: Bytes) -> ResponseBody {
+    BoxBody::new(Full::new(bytes))
+}
 
 pub type Handler<S> = Arc<
     dyn Fn(Request<Incoming>, State<S>)

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use hyper::{Method, Response, StatusCode};
+use http_body_util::combinators::BoxBody;
 use http_body_util::Full;
 use hyper::body::Bytes;
 
@@ -210,7 +211,7 @@ pub(crate) fn empty_response_with_headers(
 ) -> Response<ResponseBody> {
     let mut resp = Response::builder()
         .status(status)
-        .body(Full::new(Bytes::new()))
+        .body(BoxBody::new(Full::new(Bytes::new())))
         .unwrap();
     apply_headers(&mut resp, headers);
     resp

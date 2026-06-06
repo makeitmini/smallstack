@@ -4,9 +4,9 @@ async fn handle_hello(
     _req: hyper::Request<hyper::body::Incoming>,
     _state: mini_serve::State<()>,
 ) -> Result<hyper::Response<mini_serve::ResponseBody>, ServeError> {
-    Ok(hyper::Response::new(http_body_util::Full::new(
-        hyper::body::Bytes::from("hello"),
-    )))
+Ok(hyper::Response::new(mini_serve::body(
+    hyper::body::Bytes::from("hello"),
+)))
 }
 
 #[tokio::test]

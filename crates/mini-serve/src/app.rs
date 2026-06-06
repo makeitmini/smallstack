@@ -8,6 +8,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use http_body_util::combinators::BoxBody;
 use http_body_util::Full;
 use tokio::net::TcpListener;
 
@@ -43,7 +44,7 @@ fn error_response(code: u16, message: &str) -> Response<ResponseBody> {
     Response::builder()
         .status(StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
         .header("content-type", "application/json")
-        .body(Full::new(Bytes::from(json)))
+        .body(BoxBody::new(Full::new(Bytes::from(json))))
         .unwrap()
 }
 

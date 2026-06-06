@@ -1,5 +1,10 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use futures_core::Stream;
+
 use hyper::{Response, StatusCode};
-use mini_serve::{empty, handler, json, redirect, Json, RouteBuilder, ServeError};
+use mini_serve::{empty, handler, json, redirect, sse_stream, Json, RouteBuilder, ServeError};
 
 async fn handle_json(
     _req: hyper::Request<hyper::body::Incoming>,
@@ -130,4 +135,71 @@ async fn json_wrapper_with_custom_status() {
     assert_eq!(resp.status(), 201);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["id"], 42);
+}
+
+async fn handle_sse(
+    _req: hyper::Request<hyper::body::Incoming>,
+    _state: mini_serve::State<()>,
+) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
+    Ok(sse_stream(IterStream(
+        vec![
+            "event a".to_string(),
+            "event b".to_string(),
+            "event c".to_string(),
+        ],
+        0,
+    )))
+}
+
+struct IterStream(Vec<String>, usize);
+
+impl Stream for IterStream {
+    type Item = String;
+
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.1 < self.0.len() {
+            let item = self.0[self.1].clone();
+            self.1 += 1;
+            Poll::Ready(Some(item))
+        } else {
+            Poll::Ready(None)
+        }
+    }
+}
+
+#[tokio::test]
+async fn sse_stream_returns_text_event_stream_content_type() {
+    let port = RouteBuilder::stateless()
+        .get("/events", handler(handle_sse))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::get(format!("http://localhost:{port}/events"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "text/event-stream"
+    );
+}
+
+#[tokio::test]
+async fn sse_stream_contains_all_events_in_order() {
+    let port = RouteBuilder::stateless()
+        .get("/events", handler(handle_sse))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let body = reqwest::get(format!("http://localhost:{port}/events"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(body, "data: event a\n\ndata: event b\n\ndata: event c\n\n");
 }
