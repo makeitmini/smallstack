@@ -13,13 +13,14 @@ use tokio::net::TcpListener;
 
 use crate::error::ServeError;
 use crate::handler::{Handler, ResponseBody};
-use crate::middleware::Middleware;
+use crate::middleware::{CorsConfig, Middleware};
 use crate::router::{QueryParams, Router};
 use crate::state::State;
 
 pub struct App<S> {
-    state:  Arc<S>,
-    router: Arc<Router<S>>,
+    state:      Arc<S>,
+    router:     Arc<Router<S>>,
+    cors_config: Option<CorsConfig>,
 }
 
 fn parse_query(query: Option<&str>) -> QueryParams {
@@ -49,8 +50,9 @@ fn error_response(code: u16, message: &str) -> Response<ResponseBody> {
 impl<S: Clone + Send + Sync + 'static> App<S> {
     pub fn new(state: S) -> Self {
         App {
-            state:  Arc::new(state),
-            router: Arc::new(Router::new()),
+            state:      Arc::new(state),
+            router:     Arc::new(Router::new()),
+            cors_config: None,
         }
     }
 
@@ -59,11 +61,29 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
         let path = req.uri().path().to_string();
         let state = State::new(S::clone(&self.state));
 
-        let path_exists = self.router.has_path(&path);
+        // Read CORS-relevant headers before req is consumed
+        let req_origin = req
+            .headers()
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let req_acrh = req
+            .headers()
+            .get("access-control-request-headers")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
 
+        // CORS preflight — handled before routing
+        if let Some(cfg) = &self.cors_config {
+            if method == Method::OPTIONS && req_origin.is_some() {
+                return cfg.preflight_response(req_origin.as_deref(), req_acrh.as_deref());
+            }
+        }
+
+        let path_exists = self.router.has_path(&path);
         let query_params = parse_query(req.uri().query());
 
-        match self.router.match_route(&method, &path) {
+        let mut resp = match self.router.match_route(&method, &path) {
             Some((handler, params)) => {
                 let mut req = req;
                 req.extensions_mut().insert(query_params);
@@ -80,7 +100,13 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                     error_response(404, "not found")
                 }
             }
+        };
+
+        if let Some(cfg) = &self.cors_config {
+            cfg.apply_to_response(&mut resp, req_origin.as_deref());
         }
+
+        resp
     }
 
     pub async fn bind(self, addr: SocketAddr) -> Result<(), ServeError> {
@@ -155,19 +181,26 @@ pub struct RouteBuilder<S> {
     state:      Arc<S>,
     router:     Router<S>,
     middleware: Vec<Middleware<S>>,
+    cors_config: Option<CorsConfig>,
 }
 
 impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
     pub fn new(state: S) -> Self {
         RouteBuilder {
-            state:      Arc::new(state),
-            router:     Router::new(),
-            middleware: Vec::new(),
+            state:       Arc::new(state),
+            router:      Router::new(),
+            middleware:  Vec::new(),
+            cors_config: None,
         }
     }
 
     pub fn wrap(mut self, m: Middleware<S>) -> Self {
         self.middleware.push(m);
+        self
+    }
+
+    pub fn with_cors(mut self, config: CorsConfig) -> Self {
+        self.cors_config = Some(config);
         self
     }
 
@@ -195,8 +228,9 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
         let middleware = std::mem::take(&mut self.middleware);
         self.router.apply_middleware(&middleware);
         App {
-            state:  self.state,
-            router: Arc::new(self.router),
+            state:       self.state,
+            router:      Arc::new(self.router),
+            cors_config: self.cors_config,
         }
     }
 }
