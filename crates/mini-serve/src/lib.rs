@@ -16,6 +16,6 @@ pub use extract::path_params;
 pub use handler::{handler, Handler, ResponseBody};
 pub use header::{get_header, parse_cookies};
 pub use middleware::{middleware, CorsConfig, Middleware};
-pub use response::{empty, json, redirect};
+pub use response::{empty, json, redirect, Json};
 pub use router::{PathParams, QueryParams};
 pub use state::State;
