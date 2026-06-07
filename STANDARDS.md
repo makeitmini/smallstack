@@ -25,10 +25,10 @@ through Cargo feature flags only:
 
 | Crate | Standalone deps | Optional sibling deps |
 |---|---|---|
-| `mini-err` | none | none |
-| `mini-log` | none | `mini-err` behind `"err"` |
-| `mini-serve` | `hyper`, `tokio`, `serde_json`, `serde`, `serde_qs` | `mini-err` behind `"err"`, `mini-log` behind `"log"` |
-| `mini-static` | `hyper`, `tokio`, `mime_guess` | `mini-err` behind `"err"`, `mini-log` behind `"log"` |
+| `mini-err` | `serde` (optional) | none |
+| `mini-log` | `serde_json` | `mini-err` behind `"err"` |
+| `mini-serve` | `hyper`, `hyper-util`, `http-body-util`, `http-body`, `tokio`, `serde`, `serde_json`, `serde_qs`, `futures-core` | `mini-err` behind `"err"`, `mini-log` behind `"log"` |
+| `mini-static` | `hyper`, `hyper-util`, `http-body-util`, `http-body`, `tokio`, `serde_json`, `mime_guess` | `mini-err` behind `"err"`, `mini-log` behind `"log"` |
 
 ---
 
