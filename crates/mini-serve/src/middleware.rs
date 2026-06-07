@@ -32,18 +32,10 @@ pub struct CorsConfig {
 impl Default for CorsConfig {
     fn default() -> Self {
         CorsConfig {
-            allow_origins:     vec!["*".to_string()],
-            allow_all_origins: true,
-            allow_methods:     vec![
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-                Method::HEAD,
-                Method::OPTIONS,
-            ],
-            allow_headers:  vec!["*".to_string()],
+            allow_origins:     Vec::new(),
+            allow_all_origins: false,
+            allow_methods:     Vec::new(),
+            allow_headers:     Vec::new(),
             expose_headers: Vec::new(),
             max_age_secs:   None,
             credentials:    false,
@@ -92,24 +84,28 @@ impl CorsConfig {
     fn build_preflight_headers(&self, req_headers: Option<&str>) -> Vec<(String, String)> {
         let mut headers = Vec::new();
 
-        headers.push((
-            "access-control-allow-methods".to_string(),
-            self.allow_methods
-                .iter()
-                .map(|m| m.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-        ));
+        if !self.allow_methods.is_empty() {
+            headers.push((
+                "access-control-allow-methods".to_string(),
+                self.allow_methods
+                    .iter()
+                    .map(|m| m.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ));
+        }
 
-        let allowed = if self.allow_headers.contains(&"*".to_string()) {
-            req_headers.unwrap_or("*")
-        } else {
-            &self.allow_headers.join(", ")
-        };
-        headers.push((
-            "access-control-allow-headers".to_string(),
-            allowed.to_string(),
-        ));
+        if self.allow_headers.contains(&"*".to_string()) {
+            headers.push((
+                "access-control-allow-headers".to_string(),
+                req_headers.unwrap_or("*").to_string(),
+            ));
+        } else if !self.allow_headers.is_empty() {
+            headers.push((
+                "access-control-allow-headers".to_string(),
+                self.allow_headers.join(", "),
+            ));
+        }
 
         if let Some(secs) = self.max_age_secs {
             headers.push((
@@ -164,32 +160,12 @@ impl CorsConfigBuilder {
     }
 
     pub fn build(self) -> CorsConfig {
-        let allow_origins = if self.allow_origins.is_empty() {
-            vec!["*".to_string()]
-        } else {
-            self.allow_origins
-        };
-        let allow_all_origins = allow_origins.len() == 1 && allow_origins[0] == "*";
+        let allow_all_origins = self.allow_origins.len() == 1 && self.allow_origins[0] == "*";
         CorsConfig {
-            allow_origins,
+            allow_origins:     self.allow_origins,
             allow_all_origins,
-            allow_methods:  if self.allow_methods.is_empty() {
-                vec![
-                    Method::GET,
-                    Method::POST,
-                    Method::PUT,
-                    Method::DELETE,
-                    Method::PATCH,
-                    Method::HEAD,
-                ]
-            } else {
-                self.allow_methods
-            },
-            allow_headers:  if self.allow_headers.is_empty() {
-                vec!["*".to_string()]
-            } else {
-                self.allow_headers
-            },
+            allow_methods:     self.allow_methods,
+            allow_headers:     self.allow_headers,
             expose_headers: self.expose_headers,
             max_age_secs:   self.max_age_secs,
             credentials:    self.credentials,

@@ -1,3 +1,4 @@
+use hyper::Method;
 use mini_serve::{handler, CorsConfig, RouteBuilder, ServeError};
 
 async fn handle_hello(
@@ -11,8 +12,11 @@ Ok(hyper::Response::new(mini_serve::body(
 
 #[tokio::test]
 async fn cors_allow_any_adds_wildcard_header() {
+    let config = CorsConfig::builder()
+        .allow_origin("*")
+        .build();
     let port = RouteBuilder::stateless()
-        .with_cors(CorsConfig::default())
+        .with_cors(config)
         .get("/", handler(handle_hello))
         .seal()
         .bind_ephemeral()
@@ -34,8 +38,13 @@ async fn cors_allow_any_adds_wildcard_header() {
 
 #[tokio::test]
 async fn cors_preflight_returns_204() {
+    let config = CorsConfig::builder()
+        .allow_origin("*")
+        .allow_method(Method::GET)
+        .allow_header("*")
+        .build();
     let port = RouteBuilder::stateless()
-        .with_cors(CorsConfig::default())
+        .with_cors(config)
         .get("/", handler(handle_hello))
         .seal()
         .bind_ephemeral()
@@ -64,8 +73,11 @@ async fn cors_preflight_returns_204() {
 
 #[tokio::test]
 async fn cors_preflight_without_origin_is_not_preflight() {
+    let config = CorsConfig::builder()
+        .allow_origin("*")
+        .build();
     let port = RouteBuilder::stateless()
-        .with_cors(CorsConfig::default())
+        .with_cors(config)
         .get("/", handler(handle_hello))
         .seal()
         .bind_ephemeral()
@@ -84,6 +96,7 @@ async fn cors_preflight_without_origin_is_not_preflight() {
 #[tokio::test]
 async fn cors_with_credentials_echos_origin() {
     let config = CorsConfig::builder()
+        .allow_origin("*")
         .allow_credentials(true)
         .build();
     let port = RouteBuilder::stateless()
