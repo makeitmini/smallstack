@@ -3,8 +3,10 @@ use std::fs;
 use mini_static::Server;
 
 fn write_tree(dir: &std::path::Path) {
-    fs::create_dir_all(dir.join("sub")).unwrap();
+    fs::create_dir_all(dir.join("sub/nested")).unwrap();
     fs::write(dir.join("index.html"), b"<h1>hello</h1>").unwrap();
+    fs::write(dir.join("sub/index.html"), b"<h1>sub</h1>").unwrap();
+    fs::write(dir.join("sub/nested/index.html"), b"<h1>nested</h1>").unwrap();
     fs::write(dir.join("sub/file.txt"), b"hello world").unwrap();
     fs::create_dir(dir.join("empty")).unwrap();
     fs::write(dir.join("sub/data.json"), b"{\"x\":1}").unwrap();
@@ -40,6 +42,26 @@ async fn serves_index_html_for_root() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.text().await.unwrap(), "<h1>hello</h1>");
+}
+
+#[tokio::test]
+async fn directory_with_index_serves_index_html() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/sub", g.port))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "<h1>sub</h1>");
+}
+
+#[tokio::test]
+async fn nested_directory_with_index_serves_correctly() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/sub/nested", g.port))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "<h1>nested</h1>");
 }
 
 #[tokio::test]
