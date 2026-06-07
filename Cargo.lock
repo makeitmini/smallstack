@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "mini-serve"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "futures-core",
  "http-body",
@@ -613,6 +613,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "mini-err",
+ "mini-log",
  "reqwest",
  "serde",
  "serde_json",
