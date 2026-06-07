@@ -236,8 +236,85 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
     }
 }
 
+impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
+    /// Register a group of routes sharing an optional prefix and group-level middleware.
+    ///
+    /// The closure receives a [`GroupBuilder`] whose routes are prefixed with `prefix`.
+    /// Group middleware is applied before parent middleware.
+    pub fn group<F>(mut self, prefix: &str, f: F) -> Self
+    where
+        F: FnOnce(GroupBuilder<S>) -> GroupBuilder<S>,
+    {
+        let group = f(GroupBuilder::new());
+        let mut routes = group.routes;
+
+        for m in &group.middleware {
+            for (_, _, handler) in &mut routes {
+                *handler = m(handler.clone());
+            }
+        }
+
+        let prefix = prefix.trim_matches('/');
+        for (method, path, handler) in routes {
+            let path = path.trim_start_matches('/');
+            let full_path = if prefix.is_empty() {
+                format!("/{path}")
+            } else {
+                format!("/{prefix}/{path}")
+            };
+            self.router.insert(method, &full_path, handler);
+        }
+
+        self
+    }
+}
+
 impl RouteBuilder<()> {
     pub fn stateless() -> Self {
         RouteBuilder::new(())
+    }
+}
+
+/// Builder for routes inside a [`RouteBuilder::group`].
+///
+/// Supports the same method-specific routing and middleware as [`RouteBuilder`]
+/// but routes are automatically prefixed with the group's path prefix.
+#[must_use = "GroupBuilder methods return Self; call .get(), .post(), etc., and return from the closure"]
+pub struct GroupBuilder<S> {
+    routes:     Vec<(Method, String, Handler<S>)>,
+    middleware: Vec<Middleware<S>>,
+}
+
+impl<S: Clone + Send + Sync + 'static> GroupBuilder<S> {
+    fn new() -> Self {
+        GroupBuilder {
+            routes:     Vec::new(),
+            middleware: Vec::new(),
+        }
+    }
+
+    pub fn wrap(mut self, m: Middleware<S>) -> Self {
+        self.middleware.push(m);
+        self
+    }
+
+    pub fn get(mut self, path: &str, handler: Handler<S>) -> Self {
+        self.routes.push((Method::GET, path.to_string(), handler));
+        self
+    }
+
+    pub fn post(mut self, path: &str, handler: Handler<S>) -> Self {
+        self.routes.push((Method::POST, path.to_string(), handler));
+        self
+    }
+
+    pub fn put(mut self, path: &str, handler: Handler<S>) -> Self {
+        self.routes.push((Method::PUT, path.to_string(), handler));
+        self
+    }
+
+    pub fn delete(mut self, path: &str, handler: Handler<S>) -> Self {
+        self.routes.push((Method::DELETE, path.to_string(), handler));
+        self
     }
 }

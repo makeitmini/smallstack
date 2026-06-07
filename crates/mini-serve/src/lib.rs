@@ -11,7 +11,7 @@ mod response;
 mod router;
 mod state;
 
-pub use app::{App, RouteBuilder};
+pub use app::{App, GroupBuilder, RouteBuilder};
 pub use body::json_body;
 pub use error::ServeError;
 pub use extract::path_params;
