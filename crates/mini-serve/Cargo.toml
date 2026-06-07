@@ -1,7 +1,7 @@
 [package]
 name = "mini-serve"
-version = "0.3.6"
-edition = "2021"
+version = "0.3.7"
+edition.workspace = true
 
 [features]
 default = []

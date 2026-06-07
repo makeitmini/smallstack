@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "mini-err"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "mini-log"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "mini-err",
  "serde_json",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "mini-serve"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "futures-core",
  "http-body",
