@@ -15,6 +15,8 @@ use tokio::net::TcpListener;
 
 use crate::error::StaticError;
 use crate::handler::{Handler, RequestInfo, ResponseBody};
+#[cfg(debug_assertions)]
+use crate::live;
 use crate::mime::mime_type;
 use crate::resolve::resolve;
 use crate::transform::Transform;
@@ -61,12 +63,19 @@ impl Server {
         self
     }
 
-    pub async fn run(self) -> Result<(), StaticError> {
+    pub async fn run(mut self) -> Result<(), StaticError> {
         let listener = TcpListener::bind(self.addr)
             .await
             .map_err(StaticError::Io)?;
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
+        #[cfg(debug_assertions)]
+        {
+            let broadcaster = live::Broadcaster::new();
+            self.handlers
+                .push(Arc::new(live::SseHandler { broadcaster: broadcaster.clone() }));
+            live::start_poller(dir.clone(), broadcaster);
+        }
         let handlers = Arc::new(self.handlers);
         let transform: Option<Arc<dyn Transform>> = self.transform;
         #[cfg(feature = "log")]
@@ -112,7 +121,7 @@ impl Server {
         }
     }
 
-    pub async fn run_ephemeral(self) -> Result<u16, StaticError> {
+    pub async fn run_ephemeral(mut self) -> Result<u16, StaticError> {
         let addr: SocketAddr = ([0, 0, 0, 0], 0).into();
         let listener = TcpListener::bind(addr)
             .await
@@ -123,6 +132,13 @@ impl Server {
             .port();
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
+        #[cfg(debug_assertions)]
+        {
+            let broadcaster = live::Broadcaster::new();
+            self.handlers
+                .push(Arc::new(live::SseHandler { broadcaster: broadcaster.clone() }));
+            live::start_poller(dir.clone(), broadcaster);
+        }
         let handlers = Arc::new(self.handlers);
         let transform: Option<Arc<dyn Transform>> = self.transform;
         #[cfg(feature = "log")]
@@ -202,11 +218,7 @@ async fn handle(
                     if let Some(ref t) = transform {
                         bytes = t.apply(mime, bytes);
                     }
-                    Response::builder()
-                        .status(StatusCode::OK)
-                        .header("content-type", mime)
-                        .body(BoxBody::new(Full::new(Bytes::from(bytes))))
-                        .unwrap()
+                    file_response(bytes, mime)
                 }
                 Err(e) => error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -230,4 +242,18 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
         .header("content-type", "application/json")
         .body(BoxBody::new(Full::new(Bytes::from(json))))
         .unwrap()
+}
+
+#[cfg(not(debug_assertions))]
+fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", mime)
+        .body(BoxBody::new(Full::new(Bytes::from(bytes))))
+        .unwrap()
+}
+
+#[cfg(debug_assertions)]
+fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
+    crate::live::make_html_response(bytes, mime)
 }

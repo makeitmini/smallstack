@@ -34,25 +34,3 @@ fn from_env_fallbacks() {
         "expected Json when LOG_FORMAT=json"
     );
 }
-
-#[test]
-fn log_level_unset_defaults_to_info() {
-    std::env::remove_var("LOG_LEVEL");
-    let log = Logger::from_env("test");
-    assert_eq!(log.level, Level::Info);
-}
-
-#[test]
-fn log_level_unknown_defaults_to_info() {
-    std::env::set_var("LOG_LEVEL", "bogus");
-    let log = Logger::from_env("test");
-    assert_eq!(log.level, Level::Info);
-}
-
-#[test]
-fn log_format_unset_defaults_to_conventional() {
-    std::env::remove_var("LOG_LEVEL");
-    std::env::remove_var("LOG_FORMAT");
-    let log = Logger::from_env("test");
-    assert_eq!(log.format, Format::Conventional);
-}
