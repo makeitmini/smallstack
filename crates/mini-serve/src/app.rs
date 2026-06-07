@@ -38,11 +38,11 @@ fn parse_query(query: Option<&str>) -> QueryParams {
     QueryParams(map)
 }
 
-fn error_response(code: u16, message: &str) -> Response<ResponseBody> {
+fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
     let body = serde_json::json!({ "message": message });
     let json = serde_json::to_string(&body).unwrap_or_default();
     Response::builder()
-        .status(StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+        .status(status)
         .header("content-type", "application/json")
         .body(BoxBody::new(Full::new(Bytes::from(json))))
         .unwrap()
@@ -91,14 +91,18 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                 req.extensions_mut().insert(params);
                 match handler(req, state).await {
                     Ok(resp) => resp,
-                    Err(e) => error_response(e.code, &e.message),
+                    Err(e) => error_response(
+                        StatusCode::from_u16(e.code)
+                            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                        &e.message,
+                    ),
                 }
             }
             None => {
                 if path_exists {
-                    error_response(405, "method not allowed")
+                    error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
                 } else {
-                    error_response(404, "not found")
+                    error_response(StatusCode::NOT_FOUND, "not found")
                 }
             }
         };
