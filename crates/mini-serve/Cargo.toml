@@ -19,9 +19,9 @@ serde_json = "1"
 serde_qs = "0.13"
 futures-core = { version = "0.3", default-features = false, features = ["std"] }
 mini-err = { path = "../mini-err", version = "0.3", optional = true }
-mini-log = { path = "../mini-log", version = "0.2", optional = true }
+mini-log = { path = "../mini-log", version = "0.3", optional = true }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 mini-err = { path = "../mini-err", version = "0.3" }
-mini-log = { path = "../mini-log", version = "0.2" }
+mini-log = { path = "../mini-log", version = "0.3" }

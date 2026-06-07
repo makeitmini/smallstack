@@ -25,6 +25,17 @@ pub struct Logger {
     pub out:    Arc<Mutex<Box<dyn Write + Send + Sync>>>,
 }
 
+impl Clone for Logger {
+    fn clone(&self) -> Self {
+        Logger {
+            level:  self.level,
+            format: self.format,
+            scope:  self.scope,
+            out:    self.out.clone(),
+        }
+    }
+}
+
 impl Logger {
     pub fn new(scope: &'static str) -> Self {
         Logger {
@@ -50,6 +61,12 @@ impl Logger {
         self
     }
 
+    /// Build a logger from environment variables.
+    ///
+    /// - `LOG_LEVEL`: `error`, `warn`, `info`, `debug`, `trace`.
+    ///   Unset or unrecognized → `Level::Info`.
+    /// - `LOG_FORMAT`: `conventional` or `json`.
+    ///   Unset → `Format::Conventional`.
     pub fn from_env(scope: &'static str) -> Self {
         let level = std::env::var("LOG_LEVEL")
             .ok()
