@@ -158,3 +158,76 @@ async fn method_mismatch_returns_405() {
         .unwrap();
     assert_eq!(resp.status(), 405);
 }
+
+#[tokio::test]
+async fn put_and_delete_routes_work() {
+    async fn handle_put(
+        _req: hyper::Request<hyper::body::Incoming>,
+        _state: mini_serve::State<()>,
+    ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
+        let resp = Response::builder()
+            .status(StatusCode::OK)
+            .body(body(Bytes::from("updated")))
+            .unwrap();
+        Ok(resp)
+    }
+
+    async fn handle_delete(
+        _req: hyper::Request<hyper::body::Incoming>,
+        _state: mini_serve::State<()>,
+    ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
+        let resp = Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(body(Bytes::new()))
+            .unwrap();
+        Ok(resp)
+    }
+
+    let port = RouteBuilder::stateless()
+        .put("/resource", handler(handle_put))
+        .delete("/resource", handler(handle_delete))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .put(format!("http://localhost:{port}/resource"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "updated");
+
+    let resp = client
+        .delete(format!("http://localhost:{port}/resource"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+}
+
+#[tokio::test]
+async fn head_on_post_only_path_returns_not_found() {
+    async fn handle_post(
+        _req: hyper::Request<hyper::body::Incoming>,
+        _state: mini_serve::State<()>,
+    ) -> Result<Response<mini_serve::ResponseBody>, ServeError> {
+        Ok(Response::new(body(Bytes::from("created"))))
+    }
+
+    let port = RouteBuilder::stateless()
+        .post("/resource", handler(handle_post))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .head(format!("http://localhost:{port}/resource"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}

@@ -33,4 +33,22 @@ fn from_env_fallbacks() {
         Format::Json,
         "expected Json when LOG_FORMAT=json"
     );
+
+    // Case insensitivity
+    std::env::set_var("LOG_LEVEL", "WARN");
+    std::env::set_var("LOG_FORMAT", "CONVENTIONAL");
+    let log = Logger::from_env("test");
+    assert_eq!(log.level, Level::Warn, "expected Warn when LOG_LEVEL=WARN (uppercase)");
+    assert_eq!(
+        log.format,
+        Format::Conventional,
+        "expected Conventional when LOG_FORMAT=CONVENTIONAL (uppercase)"
+    );
+
+    // All valid log levels
+    for (level_str, expected) in &[("error", Level::Error), ("warn", Level::Warn), ("info", Level::Info), ("debug", Level::Debug), ("trace", Level::Trace)] {
+        std::env::set_var("LOG_LEVEL", *level_str);
+        let log = Logger::from_env("test");
+        assert_eq!(log.level, *expected, "expected {expected:?} when LOG_LEVEL={level_str}");
+    }
 }

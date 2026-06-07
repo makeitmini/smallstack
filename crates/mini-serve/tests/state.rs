@@ -69,3 +69,12 @@ async fn state_is_shared_across_concurrent_requests() {
     // Final count is 2
     assert_eq!(counter.load(Ordering::SeqCst), 2);
 }
+
+#[tokio::test]
+async fn state_inner_returns_cloned_value() {
+    let state = mini_serve::State::new(42u32);
+    assert_eq!(state.inner(), 42);
+    // Verify it's a clone, not a reference
+    let cloned = state.inner();
+    assert_eq!(cloned, 42);
+}

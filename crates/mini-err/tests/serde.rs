@@ -1,6 +1,7 @@
 #![cfg(feature = "serde")]
 
 use mini_err::Error;
+use std::error::Error as StdError;
 
 #[test]
 fn serialized_bad_error_has_correct_code_field() {
@@ -30,4 +31,73 @@ fn serialized_json_has_expected_shape() {
     assert_eq!(value["kind"], "bad");
     assert_eq!(value["message"], "missing field 'name'");
     assert_eq!(value["code"], 400);
+}
+
+#[test]
+fn round_trip_io_variant() {
+    let io = std::io::Error::new(std::io::ErrorKind::NotFound, "config.toml");
+    let err = Error::Io { cause: io, scope: "fs" };
+    let json = serde_json::to_string(&err).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["scope"], "fs");
+    assert_eq!(value["kind"], "io");
+    assert!(value["message"].as_str().unwrap().contains("config.toml"));
+    assert_eq!(value["code"], 500);
+
+    let deserialized: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.scope(), "fs");
+    assert_eq!(deserialized.kind(), "io");
+    assert_eq!(deserialized.code(), 500);
+    assert!(StdError::source(&deserialized).is_some());
+}
+
+#[test]
+fn round_trip_net_variant() {
+    let err = Error::net("upstream", "connection refused");
+    let json = serde_json::to_string(&err).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["scope"], "upstream");
+    assert_eq!(value["kind"], "net");
+    assert_eq!(value["message"], "connection refused");
+    assert_eq!(value["code"], 502);
+
+    let deserialized: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.scope(), "upstream");
+    assert_eq!(deserialized.kind(), "net");
+    assert_eq!(deserialized.message(), "connection refused");
+    assert_eq!(deserialized.code(), 502);
+}
+
+#[test]
+fn round_trip_cfg_variant() {
+    let err = Error::cfg("startup", "missing key");
+    let json = serde_json::to_string(&err).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["scope"], "startup");
+    assert_eq!(value["kind"], "cfg");
+    assert_eq!(value["message"], "missing key");
+    assert_eq!(value["code"], 500);
+
+    let deserialized: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.scope(), "startup");
+    assert_eq!(deserialized.kind(), "cfg");
+    assert_eq!(deserialized.message(), "missing key");
+    assert_eq!(deserialized.code(), 500);
+}
+
+#[test]
+fn round_trip_gone_variant() {
+    let err = Error::gone("db", "record deleted");
+    let json = serde_json::to_string(&err).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["scope"], "db");
+    assert_eq!(value["kind"], "gone");
+    assert_eq!(value["message"], "record deleted");
+    assert_eq!(value["code"], 404);
+
+    let deserialized: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.scope(), "db");
+    assert_eq!(deserialized.kind(), "gone");
+    assert_eq!(deserialized.message(), "record deleted");
+    assert_eq!(deserialized.code(), 404);
 }

@@ -217,3 +217,48 @@ async fn directory_without_index_returns_404() {
         .unwrap();
     assert_eq!(resp.status(), 404);
 }
+
+#[tokio::test]
+async fn file_read_error_returns_500() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file_path = dir.path().join("restricted.txt");
+    std::fs::write(&file_path, b"secret").unwrap();
+    // Remove all permissions — resolve() succeeds but tokio::fs::read fails.
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let port = Server::new(dir.path().to_path_buf())
+        .run_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/restricted.txt"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 500);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["message"], "failed to read file");
+
+    // Restore permissions so tempdir cleanup works
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[tokio::test]
+async fn unknown_extension_uses_octet_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("data.zzz"), b"binary data").unwrap();
+    let port = Server::new(dir.path().to_path_buf())
+        .run_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::get(        format!("http://127.0.0.1:{port}/data.zzz"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "application/octet-stream"
+    );
+    assert_eq!(resp.text().await.unwrap(), "binary data");
+}

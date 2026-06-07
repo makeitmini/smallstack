@@ -77,3 +77,17 @@ fn eight_fields_all_appear_in_output() {
     let out = output(&buf);
     assert!(out.contains("info(test): many_fields a=1 b=2 c=3 d=4 e=5 f=6 g=7 h=8"), "got: {out}");
 }
+
+#[test]
+fn field_value_with_control_chars_is_sanitized() {
+    let (log, buf) = test_logger();
+    log.info("inject")
+        .field("payload", "line1\nline2\r\x00done")
+        .emit();
+    let out = output(&buf);
+    assert!(out.contains("payload=line1 line2  done"), "expected sanitized output, got: {out}");
+    // The writeln! adds a trailing \n, so remove it before checking control chars.
+    let body = out.trim_end_matches(|c| c == '\r' || c == '\n');
+    assert!(!body.contains('\r'), "carriage return found in output body: {body:?}");
+    assert!(!body.contains('\x00'), "null byte found in output body: {body:?}");
+}

@@ -27,6 +27,38 @@ async fn handle_echo_json(
 }
 
 #[tokio::test]
+async fn body_size_limit_rejects_oversized_body() {
+    let port = RouteBuilder::stateless()
+        .post("/echo", handler(handle_echo_json))
+        .with_max_body_size(50)
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let client = reqwest::Client::new();
+
+    // Body larger than configured limit → 413
+    let resp = client
+        .post(format!("http://localhost:{port}/echo"))
+        .body(serde_json::json!({"data": "x".repeat(200)}).to_string())
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 413, "oversized body must be rejected");
+
+    // Small body within limit → still works
+    let resp = client
+        .post(format!("http://localhost:{port}/echo"))
+        .json(&serde_json::json!({"ok": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "small body must still succeed");
+}
+
+#[tokio::test]
 async fn valid_json_body_is_deserialized() {
     let port = RouteBuilder::stateless()
         .post("/users", handler(handle_create))

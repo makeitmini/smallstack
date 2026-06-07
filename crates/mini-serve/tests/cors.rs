@@ -125,3 +125,117 @@ async fn cors_with_credentials_echos_origin() {
         "true"
     );
 }
+
+#[tokio::test]
+async fn cors_specific_origin_is_echoed() {
+    let config = CorsConfig::builder()
+        .allow_origin("https://myapp.com")
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://localhost:{port}/"))
+        .header("origin", "https://myapp.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("access-control-allow-origin").unwrap(),
+        "https://myapp.com"
+    );
+}
+
+#[tokio::test]
+async fn cors_non_matching_origin_omits_header() {
+    let config = CorsConfig::builder()
+        .allow_origin("https://myapp.com")
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://localhost:{port}/"))
+        .header("origin", "https://evil.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert!(resp.headers().get("access-control-allow-origin").is_none());
+}
+
+#[tokio::test]
+async fn cors_preflight_with_explicit_headers_and_max_age() {
+    let config = CorsConfig::builder()
+        .allow_origin("https://myapp.com")
+        .allow_method(Method::GET)
+        .allow_header("X-Custom")
+        .max_age_secs(3600)
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, format!("http://localhost:{port}/"))
+        .header("origin", "https://myapp.com")
+        .header("access-control-request-method", "GET")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+    assert_eq!(
+        resp.headers().get("access-control-allow-methods").unwrap(),
+        "GET"
+    );
+    assert_eq!(
+        resp.headers().get("access-control-allow-headers").unwrap(),
+        "X-Custom"
+    );
+    assert_eq!(
+        resp.headers().get("access-control-max-age").unwrap(),
+        "3600"
+    );
+}
+
+#[tokio::test]
+async fn cors_expose_headers_appear_in_response() {
+    let config = CorsConfig::builder()
+        .allow_origin("*")
+        .expose_header("X-Result")
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://localhost:{port}/"))
+        .header("origin", "https://example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("access-control-expose-headers").unwrap(),
+        "X-Result"
+    );
+}

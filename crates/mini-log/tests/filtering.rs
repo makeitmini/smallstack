@@ -56,3 +56,28 @@ fn warn_suppressed_below_warn() {
     log.warn("should not appear").emit();
     assert_eq!(output(&buf), "");
 }
+
+#[test]
+fn warn_passes_at_warn_and_below() {
+    for level in &[Level::Warn, Level::Info, Level::Debug, Level::Trace] {
+        let (log, buf) = silent_logger(*level);
+        log.warn("warning").emit();
+        assert!(output(&buf).contains("warn(test): warning"), "at level {level:?}");
+    }
+}
+
+#[test]
+fn debug_passes_at_debug_and_below() {
+    for level in &[Level::Debug, Level::Trace] {
+        let (log, buf) = silent_logger(*level);
+        log.debug("debug msg").emit();
+        assert!(output(&buf).contains("debug(test): debug msg"), "at level {level:?}");
+    }
+}
+
+#[test]
+fn trace_passes_at_trace() {
+    let (log, buf) = silent_logger(Level::Trace);
+    log.trace("trace msg").emit();
+    assert!(output(&buf).contains("trace(test): trace msg"));
+}

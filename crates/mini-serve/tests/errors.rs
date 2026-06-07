@@ -1,6 +1,14 @@
 use hyper::Response;
 use mini_serve::{handler, RouteBuilder, ServeError};
 
+#[test]
+fn serve_error_display_format() {
+    let e = ServeError::new(404, "not found");
+    assert_eq!(e.to_string(), "404: not found");
+    let e = ServeError::new(500, "internal error");
+    assert_eq!(e.to_string(), "500: internal error");
+}
+
 async fn handle_bad_request(
     _req: hyper::Request<hyper::body::Incoming>,
     _state: mini_serve::State<()>,
