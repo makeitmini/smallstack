@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "mini-static"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "http-body",
  "http-body-util",
@@ -631,6 +631,7 @@ dependencies = [
  "hyper-util",
  "mime_guess",
  "mini-err",
+ "mini-log",
  "reqwest",
  "serde_json",
  "tempfile",

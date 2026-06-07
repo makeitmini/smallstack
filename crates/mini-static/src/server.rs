@@ -24,6 +24,8 @@ pub struct Server {
     addr:      SocketAddr,
     handlers:  Vec<Arc<dyn Handler>>,
     transform: Option<Arc<dyn Transform>>,
+    #[cfg(feature = "log")]
+    logger:    Option<Arc<mini_log::Logger>>,
 }
 
 impl Server {
@@ -33,6 +35,8 @@ impl Server {
             addr:      ([127, 0, 0, 1], 0).into(),
             handlers:  Vec::new(),
             transform: None,
+            #[cfg(feature = "log")]
+            logger:    None,
         }
     }
 
@@ -51,6 +55,12 @@ impl Server {
         self
     }
 
+    #[cfg(feature = "log")]
+    pub fn with_logger(mut self, logger: mini_log::Logger) -> Self {
+        self.logger = Some(Arc::new(logger));
+        self
+    }
+
     pub async fn run(self) -> Result<(), StaticError> {
         let listener = TcpListener::bind(self.addr)
             .await
@@ -59,18 +69,39 @@ impl Server {
         let dir = Arc::new(dir);
         let handlers = Arc::new(self.handlers);
         let transform: Option<Arc<dyn Transform>> = self.transform;
+        #[cfg(feature = "log")]
+        let logger = self.logger;
         loop {
             let (stream, _) = listener.accept().await.map_err(StaticError::Io)?;
             let dir = dir.clone();
             let handlers = handlers.clone();
             let transform = transform.clone();
+            #[cfg(feature = "log")]
+            let logger = logger.clone();
             tokio::spawn(async move {
+                #[cfg(feature = "log")]
+                let logger = logger.clone();
                 let svc = service_fn(move |req: Request<Incoming>| {
                     let dir = dir.clone();
                     let handlers = handlers.clone();
                     let transform = transform.clone();
+                    #[cfg(feature = "log")]
+                    let logger = logger.clone();
                     async move {
-                        Ok::<_, Infallible>(handle(req, &dir, &handlers, &transform).await)
+                        #![allow(unused_variables)]
+                        let method = req.method().to_string();
+                        let path = req.uri().path().to_string();
+                        let resp = handle(req, &dir, &handlers, &transform).await;
+                        let status = resp.status().as_u16();
+                        #[cfg(feature = "log")]
+                        if let Some(ref l) = logger {
+                            l.info("serve")
+                                .field("method", &method)
+                                .field("path", &path)
+                                .field("status", status)
+                                .emit();
+                        }
+                        Ok::<_, Infallible>(resp)
                     }
                 });
                 let io = TokioIo::new(stream);
@@ -94,6 +125,8 @@ impl Server {
         let dir = Arc::new(dir);
         let handlers = Arc::new(self.handlers);
         let transform: Option<Arc<dyn Transform>> = self.transform;
+        #[cfg(feature = "log")]
+        let logger = self.logger;
         tokio::spawn(async move {
             loop {
                 let (stream, _) = match listener.accept().await {
@@ -103,13 +136,32 @@ impl Server {
                 let dir = dir.clone();
                 let handlers = handlers.clone();
                 let transform = transform.clone();
+                #[cfg(feature = "log")]
+                let logger = logger.clone();
                 tokio::spawn(async move {
+                    #[cfg(feature = "log")]
+                    let logger = logger.clone();
                     let svc = service_fn(move |req: Request<Incoming>| {
                         let dir = dir.clone();
                         let handlers = handlers.clone();
                         let transform = transform.clone();
+                        #[cfg(feature = "log")]
+                        let logger = logger.clone();
                         async move {
-                            Ok::<_, Infallible>(handle(req, &dir, &handlers, &transform).await)
+                            #![allow(unused_variables)]
+                            let method = req.method().to_string();
+                            let path = req.uri().path().to_string();
+                            let resp = handle(req, &dir, &handlers, &transform).await;
+                            let status = resp.status().as_u16();
+                            #[cfg(feature = "log")]
+                            if let Some(ref l) = logger {
+                                l.info("serve")
+                                    .field("method", &method)
+                                    .field("path", &path)
+                                    .field("status", status)
+                                    .emit();
+                            }
+                            Ok::<_, Infallible>(resp)
                         }
                     });
                     let io = TokioIo::new(stream);
