@@ -97,10 +97,12 @@ impl Server {
                     #[cfg(feature = "log")]
                     let logger = logger.clone();
                     async move {
-                        #![allow(unused_variables)]
+                        #[cfg(feature = "log")]
                         let method = req.method().to_string();
+                        #[cfg(feature = "log")]
                         let path = req.uri().path().to_string();
                         let resp = handle(req, &dir, &handlers, &transform).await;
+                        #[cfg(feature = "log")]
                         let status = resp.status().as_u16();
                         #[cfg(feature = "log")]
                         if let Some(ref l) = logger {
@@ -164,10 +166,12 @@ impl Server {
                         #[cfg(feature = "log")]
                         let logger = logger.clone();
                         async move {
-                            #![allow(unused_variables)]
+                            #[cfg(feature = "log")]
                             let method = req.method().to_string();
+                            #[cfg(feature = "log")]
                             let path = req.uri().path().to_string();
                             let resp = handle(req, &dir, &handlers, &transform).await;
+                            #[cfg(feature = "log")]
                             let status = resp.status().as_u16();
                             #[cfg(feature = "log")]
                             if let Some(ref l) = logger {
