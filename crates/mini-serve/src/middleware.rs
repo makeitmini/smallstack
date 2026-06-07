@@ -20,19 +20,21 @@ where
 
 #[derive(Clone)]
 pub struct CorsConfig {
-    allow_origins:  Vec<String>,
-    allow_methods:  Vec<Method>,
-    allow_headers:  Vec<String>,
-    expose_headers: Vec<String>,
-    max_age_secs:   Option<usize>,
-    credentials:    bool,
+    allow_origins:     Vec<String>,
+    allow_all_origins: bool,
+    allow_methods:     Vec<Method>,
+    allow_headers:     Vec<String>,
+    expose_headers:    Vec<String>,
+    max_age_secs:      Option<usize>,
+    credentials:       bool,
 }
 
 impl Default for CorsConfig {
     fn default() -> Self {
         CorsConfig {
-            allow_origins:  vec!["*".to_string()],
-            allow_methods:  vec![
+            allow_origins:     vec!["*".to_string()],
+            allow_all_origins: true,
+            allow_methods:     vec![
                 Method::GET,
                 Method::POST,
                 Method::PUT,
@@ -57,7 +59,7 @@ impl CorsConfig {
     fn build_cors_headers(&self, req_origin: Option<&str>) -> Vec<(String, String)> {
         let mut headers = Vec::new();
 
-        let origin = if self.credentials && self.allow_origins == ["*"] {
+        let origin = if self.credentials && self.allow_all_origins {
             req_origin.unwrap_or("*")
         } else if self.allow_origins.contains(&"*".to_string()) {
             "*"
@@ -162,12 +164,15 @@ impl CorsConfigBuilder {
     }
 
     pub fn build(self) -> CorsConfig {
+        let allow_origins = if self.allow_origins.is_empty() {
+            vec!["*".to_string()]
+        } else {
+            self.allow_origins
+        };
+        let allow_all_origins = allow_origins.len() == 1 && allow_origins[0] == "*";
         CorsConfig {
-            allow_origins:  if self.allow_origins.is_empty() {
-                vec!["*".to_string()]
-            } else {
-                self.allow_origins
-            },
+            allow_origins,
+            allow_all_origins,
             allow_methods:  if self.allow_methods.is_empty() {
                 vec![
                     Method::GET,
