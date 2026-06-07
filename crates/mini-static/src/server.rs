@@ -21,6 +21,8 @@ use crate::mime::mime_type;
 use crate::resolve::resolve;
 use crate::transform::Transform;
 
+type LogFn = Arc<dyn Fn(&str, &str, u16) + Send + Sync>;
+
 pub struct Server {
     dir:       Arc<PathBuf>,
     addr:      SocketAddr,
@@ -70,57 +72,23 @@ impl Server {
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
         #[cfg(debug_assertions)]
-        {
-            let broadcaster = live::Broadcaster::new();
-            self.handlers
-                .push(Arc::new(live::SseHandler { broadcaster: broadcaster.clone() }));
-            live::start_poller(dir.clone(), broadcaster);
-        }
+        self.setup_livereload(&dir);
         let handlers = Arc::new(self.handlers);
-        let transform: Option<Arc<dyn Transform>> = self.transform;
+        let transform = self.transform;
         #[cfg(feature = "log")]
-        let logger = self.logger;
-        loop {
-            let (stream, _) = listener.accept().await.map_err(StaticError::Io)?;
-            let dir = dir.clone();
-            let handlers = handlers.clone();
-            let transform = transform.clone();
-            #[cfg(feature = "log")]
-            let logger = logger.clone();
-            tokio::spawn(async move {
-                #[cfg(feature = "log")]
-                let logger = logger.clone();
-                let svc = service_fn(move |req: Request<Incoming>| {
-                    let dir = dir.clone();
-                    let handlers = handlers.clone();
-                    let transform = transform.clone();
-                    #[cfg(feature = "log")]
-                    let logger = logger.clone();
-                    async move {
-                        #[cfg(feature = "log")]
-                        let method = req.method().to_string();
-                        #[cfg(feature = "log")]
-                        let path = req.uri().path().to_string();
-                        let resp = handle(req, &dir, &handlers, &transform).await;
-                        #[cfg(feature = "log")]
-                        let status = resp.status().as_u16();
-                        #[cfg(feature = "log")]
-                        if let Some(ref l) = logger {
-                            l.info("serve")
-                                .field("method", &method)
-                                .field("path", &path)
-                                .field("status", status)
-                                .emit();
-                        }
-                        Ok::<_, Infallible>(resp)
-                    }
-                });
-                let io = TokioIo::new(stream);
-                let _ = AutoBuilder::new(TokioExecutor::new())
-                    .serve_connection(io, svc)
-                    .await;
-            });
-        }
+        let log = self.logger.map(|l| {
+            Arc::new(move |method: &str, path: &str, status: u16| {
+                l.info("serve")
+                    .field("method", method)
+                    .field("path", path)
+                    .field("status", status)
+                    .emit();
+            }) as LogFn
+        });
+        #[cfg(not(feature = "log"))]
+        let log = None::<LogFn>;
+        serve_inner(listener, dir, handlers, transform, log).await;
+        Ok(())
     }
 
     pub async fn run_ephemeral(mut self) -> Result<u16, StaticError> {
@@ -135,63 +103,74 @@ impl Server {
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
         #[cfg(debug_assertions)]
-        {
-            let broadcaster = live::Broadcaster::new();
-            self.handlers
-                .push(Arc::new(live::SseHandler { broadcaster: broadcaster.clone() }));
-            live::start_poller(dir.clone(), broadcaster);
-        }
+        self.setup_livereload(&dir);
         let handlers = Arc::new(self.handlers);
-        let transform: Option<Arc<dyn Transform>> = self.transform;
+        let transform = self.transform;
         #[cfg(feature = "log")]
-        let logger = self.logger;
+        let log = self.logger.map(|l| {
+            Arc::new(move |method: &str, path: &str, status: u16| {
+                l.info("serve")
+                    .field("method", method)
+                    .field("path", path)
+                    .field("status", status)
+                    .emit();
+            }) as LogFn
+        });
+        #[cfg(not(feature = "log"))]
+        let log = None::<LogFn>;
         tokio::spawn(async move {
-            loop {
-                let (stream, _) = match listener.accept().await {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
+            serve_inner(listener, dir, handlers, transform, log).await;
+        });
+        Ok(port)
+    }
+
+    #[cfg(debug_assertions)]
+    fn setup_livereload(&mut self, dir: &Arc<PathBuf>) {
+        let broadcaster = live::Broadcaster::new();
+        self.handlers
+            .push(Arc::new(live::SseHandler { broadcaster: broadcaster.clone() }));
+        live::start_poller(dir.clone(), broadcaster);
+    }
+}
+
+async fn serve_inner(
+    listener: TcpListener,
+    dir: Arc<PathBuf>,
+    handlers: Arc<Vec<Arc<dyn Handler>>>,
+    transform: Option<Arc<dyn Transform>>,
+    log: Option<LogFn>,
+) {
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let dir = dir.clone();
+        let handlers = handlers.clone();
+        let transform = transform.clone();
+        let log = log.clone();
+        tokio::spawn(async move {
+            let svc = service_fn(move |req: Request<Incoming>| {
                 let dir = dir.clone();
                 let handlers = handlers.clone();
                 let transform = transform.clone();
-                #[cfg(feature = "log")]
-                let logger = logger.clone();
-                tokio::spawn(async move {
-                    #[cfg(feature = "log")]
-                    let logger = logger.clone();
-                    let svc = service_fn(move |req: Request<Incoming>| {
-                        let dir = dir.clone();
-                        let handlers = handlers.clone();
-                        let transform = transform.clone();
-                        #[cfg(feature = "log")]
-                        let logger = logger.clone();
-                        async move {
-                            #[cfg(feature = "log")]
-                            let method = req.method().to_string();
-                            #[cfg(feature = "log")]
-                            let path = req.uri().path().to_string();
-                            let resp = handle(req, &dir, &handlers, &transform).await;
-                            #[cfg(feature = "log")]
-                            let status = resp.status().as_u16();
-                            #[cfg(feature = "log")]
-                            if let Some(ref l) = logger {
-                                l.info("serve")
-                                    .field("method", &method)
-                                    .field("path", &path)
-                                    .field("status", status)
-                                    .emit();
-                            }
-                            Ok::<_, Infallible>(resp)
-                        }
-                    });
-                    let io = TokioIo::new(stream);
-                    let _ = AutoBuilder::new(TokioExecutor::new())
-                        .serve_connection(io, svc)
-                        .await;
-                });
-            }
+                let log = log.clone();
+                async move {
+                    let method = req.method().to_string();
+                    let path = req.uri().path().to_string();
+                    let resp = handle(req, &dir, &handlers, &transform).await;
+                    let status = resp.status().as_u16();
+                    if let Some(ref log) = log {
+                        log(&method, &path, status);
+                    }
+                    Ok::<_, Infallible>(resp)
+                }
+            });
+            let io = TokioIo::new(stream);
+            let _ = AutoBuilder::new(TokioExecutor::new())
+                .serve_connection(io, svc)
+                .await;
         });
-        Ok(port)
     }
 }
 
