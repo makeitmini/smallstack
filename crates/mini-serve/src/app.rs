@@ -38,6 +38,69 @@ fn parse_query(query: Option<&str>) -> QueryParams {
     QueryParams(map)
 }
 
+// Inline tests OK per STANDARDS.md: parse_query is a pure-logic
+// helper with no public API surface.
+#[cfg(test)]
+mod parse_query_tests {
+    use super::*;
+
+    #[test]
+    fn none_returns_empty() {
+        let p = parse_query(None);
+        assert!(p.0.is_empty());
+    }
+
+    #[test]
+    fn empty_string_returns_empty() {
+        let p = parse_query(Some(""));
+        assert!(p.0.is_empty());
+    }
+
+    #[test]
+    fn single_key_value_pair() {
+        let p = parse_query(Some("name=alice"));
+        assert_eq!(p.0.get("name").unwrap(), "alice");
+    }
+
+    #[test]
+    fn multiple_pairs() {
+        let p = parse_query(Some("a=1&b=2&c=3"));
+        assert_eq!(p.0.get("a").unwrap(), "1");
+        assert_eq!(p.0.get("b").unwrap(), "2");
+        assert_eq!(p.0.get("c").unwrap(), "3");
+    }
+
+    #[test]
+    fn key_without_equals_gets_empty_value() {
+        let p = parse_query(Some("flag"));
+        assert_eq!(p.0.get("flag").unwrap(), "");
+    }
+
+    #[test]
+    fn empty_value_after_equals() {
+        let p = parse_query(Some("key="));
+        assert_eq!(p.0.get("key").unwrap(), "");
+    }
+
+    #[test]
+    fn repeated_key_last_wins() {
+        let p = parse_query(Some("key=first&key=second"));
+        assert_eq!(p.0.get("key").unwrap(), "second");
+    }
+
+    #[test]
+    fn percent_encoded_value_is_preserved() {
+        let p = parse_query(Some("q=hello%20world"));
+        assert_eq!(p.0.get("q").unwrap(), "hello%20world");
+    }
+
+    #[test]
+    fn pair_with_multiple_equals_uses_first_split() {
+        let p = parse_query(Some("key=a=b=c"));
+        assert_eq!(p.0.get("key").unwrap(), "a=b=c");
+    }
+}
+
 fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
     let body = serde_json::json!({ "message": message });
     let json = serde_json::to_string(&body).unwrap_or_default();
