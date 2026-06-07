@@ -31,14 +31,17 @@ fn output(buf: &Arc<Mutex<Vec<u8>>>) -> String {
 fn info_line_contains_scope_and_message() {
     let (log, buf) = test_logger();
     log.info("started").emit();
-    assert_eq!(output(&buf), "info(test): started\n");
+    let out = output(&buf);
+    assert!(out.starts_with("["), "expected timestamp prefix, got: {out}");
+    assert!(out.contains("info(test): started"), "got: {out}");
 }
 
 #[test]
 fn field_appears_in_output_as_key_eq_value() {
     let (log, buf) = test_logger();
     log.info("request").field("method", "GET").emit();
-    assert_eq!(output(&buf), "info(test): request method=GET\n");
+    let out = output(&buf);
+    assert!(out.contains("info(test): request method=GET"), "got: {out}");
 }
 
 #[test]
@@ -71,5 +74,6 @@ fn eight_fields_all_appear_in_output() {
         .field("g", 7)
         .field("h", 8)
         .emit();
-    assert_eq!(output(&buf), "info(test): many_fields a=1 b=2 c=3 d=4 e=5 f=6 g=7 h=8\n");
+    let out = output(&buf);
+    assert!(out.contains("info(test): many_fields a=1 b=2 c=3 d=4 e=5 f=6 g=7 h=8"), "got: {out}");
 }

@@ -46,7 +46,7 @@ fn error_passes_at_all_levels() {
     for level in &[Level::Error, Level::Warn, Level::Info, Level::Debug, Level::Trace] {
         let (log, buf) = silent_logger(*level);
         log.error("critical").emit();
-        assert_eq!(output(&buf), "error(test): critical\n", "at level {level:?}");
+        assert!(output(&buf).contains("error(test): critical"), "at level {level:?}: {}", output(&buf));
     }
 }
 

@@ -4,6 +4,13 @@ use serde_json::{Map, Value};
 
 use crate::{Entry, Level};
 
+fn unix_ts() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 impl Entry<'_> {
     pub fn render(&self) -> String {
         let level = match self.level {
@@ -14,7 +21,7 @@ impl Entry<'_> {
             Level::Trace => "trace",
         };
 
-        let mut out = format!("{}({}): {}", level, self.logger.scope, self.msg);
+        let mut out = format!("[{}] {}({}): {}", unix_ts(), level, self.logger.scope, self.msg);
         for i in 0..self.count {
             if let Some((key, ref val)) = self.fields[i] {
                 out.push_str(&format!(" {key}={val}"));
@@ -43,11 +50,7 @@ impl Entry<'_> {
             }
         }
 
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        map.insert("ts".into(), Value::Number(ts.into()));
+        map.insert("ts".into(), Value::Number(unix_ts().into()));
 
         serde_json::to_string(&Value::Object(map)).unwrap_or_default()
     }
