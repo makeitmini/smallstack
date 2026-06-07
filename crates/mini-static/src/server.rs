@@ -14,26 +14,32 @@ use http_body_util::Full;
 use tokio::net::TcpListener;
 
 use crate::error::StaticError;
+use crate::handler::{Handler, RequestInfo, ResponseBody};
 use crate::mime::mime_type;
 use crate::resolve::resolve;
 
-type ResponseBody = BoxBody<Bytes, Infallible>;
-
 pub struct Server {
-    dir:  Arc<PathBuf>,
-    addr: SocketAddr,
+    dir:      Arc<PathBuf>,
+    addr:     SocketAddr,
+    handlers: Vec<Arc<dyn Handler>>,
 }
 
 impl Server {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         Server {
-            dir:  Arc::new(dir.into()),
-            addr: ([127, 0, 0, 1], 0).into(),
+            dir:      Arc::new(dir.into()),
+            addr:     ([127, 0, 0, 1], 0).into(),
+            handlers: Vec::new(),
         }
     }
 
     pub fn bind(mut self, addr: impl Into<SocketAddr>) -> Self {
         self.addr = addr.into();
+        self
+    }
+
+    pub fn with_handler(mut self, handler: impl Handler) -> Self {
+        self.handlers.push(Arc::new(handler));
         self
     }
 
@@ -43,14 +49,17 @@ impl Server {
             .map_err(StaticError::Io)?;
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
+        let handlers = Arc::new(self.handlers);
         loop {
             let (stream, _) = listener.accept().await.map_err(StaticError::Io)?;
             let dir = dir.clone();
+            let handlers = handlers.clone();
             tokio::spawn(async move {
                 let svc = service_fn(move |req: Request<Incoming>| {
                     let dir = dir.clone();
+                    let handlers = handlers.clone();
                     async move {
-                        Ok::<_, Infallible>(handle(req, &dir).await)
+                        Ok::<_, Infallible>(handle(req, &dir, &handlers).await)
                     }
                 });
                 let io = TokioIo::new(stream);
@@ -72,6 +81,7 @@ impl Server {
             .port();
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
+        let handlers = Arc::new(self.handlers);
         tokio::spawn(async move {
             loop {
                 let (stream, _) = match listener.accept().await {
@@ -79,11 +89,13 @@ impl Server {
                     Err(_) => continue,
                 };
                 let dir = dir.clone();
+                let handlers = handlers.clone();
                 tokio::spawn(async move {
                     let svc = service_fn(move |req: Request<Incoming>| {
                         let dir = dir.clone();
+                        let handlers = handlers.clone();
                         async move {
-                            Ok::<_, Infallible>(handle(req, &dir).await)
+                            Ok::<_, Infallible>(handle(req, &dir, &handlers).await)
                         }
                     });
                     let io = TokioIo::new(stream);
@@ -97,8 +109,23 @@ impl Server {
     }
 }
 
-async fn handle(req: Request<Incoming>, dir: &Path) -> Response<ResponseBody> {
+async fn handle(
+    req: Request<Incoming>,
+    dir: &Path,
+    handlers: &[Arc<dyn Handler>],
+) -> Response<ResponseBody> {
+    let method = req.method().to_string();
     let path = req.uri().path().to_string();
+
+    for handler in handlers {
+        let info = RequestInfo {
+            method: method.clone(),
+            path: path.clone(),
+        };
+        if let Some(resp) = handler.handle(info).await {
+            return resp;
+        }
+    }
 
     match resolve(dir, &path) {
         Ok(file_path) => {
