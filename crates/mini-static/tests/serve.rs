@@ -8,6 +8,12 @@ fn write_tree(dir: &std::path::Path) {
     fs::write(dir.join("sub/file.txt"), b"hello world").unwrap();
     fs::create_dir(dir.join("empty")).unwrap();
     fs::write(dir.join("sub/data.json"), b"{\"x\":1}").unwrap();
+    fs::write(dir.join("styles.css"), b"body { color: red; }").unwrap();
+    fs::write(dir.join("app.js"), b"const x = 1;").unwrap();
+    fs::write(dir.join("image.png"), b"PNG").unwrap();
+    fs::write(dir.join("graphic.svg"), b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>").unwrap();
+    fs::write(dir.join("font.woff2"), b"wOFF2").unwrap();
+    fs::write(dir.join("favicon.ico"), b"ICO").unwrap();
 }
 
 struct ServerGuard {
@@ -79,6 +85,78 @@ async fn returns_correct_mime_type_txt() {
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/plain"
+    );
+}
+
+#[tokio::test]
+async fn returns_correct_mime_type_css() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/styles.css", g.port))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "text/css"
+    );
+}
+
+#[tokio::test]
+async fn returns_correct_mime_type_js() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/app.js", g.port))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "text/javascript"
+    );
+}
+
+#[tokio::test]
+async fn returns_correct_mime_type_png() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/image.png", g.port))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "image/png"
+    );
+}
+
+#[tokio::test]
+async fn returns_correct_mime_type_svg() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/graphic.svg", g.port))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "image/svg+xml"
+    );
+}
+
+#[tokio::test]
+async fn returns_correct_mime_type_woff2() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/font.woff2", g.port))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "font/woff2"
+    );
+}
+
+#[tokio::test]
+async fn returns_correct_mime_type_ico() {
+    let g = setup().await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{}/favicon.ico", g.port))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "image/x-icon"
     );
 }
 
