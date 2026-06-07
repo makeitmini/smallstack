@@ -2,6 +2,11 @@ use std::fmt::Display;
 
 use crate::Level;
 
+/// Replace characters that could be used for log injection with a safe substitute.
+fn sanitize(val: &str) -> String {
+    val.replace('\r', " ").replace('\n', " ").replace('\0', " ")
+}
+
 pub struct Entry<'a> {
     pub logger: &'a crate::Logger,
     pub level:  Level,
@@ -26,7 +31,7 @@ impl<'a> Entry<'a> {
 
     pub fn field(mut self, key: &'static str, val: impl Display) -> Self {
         if self.count < 8 {
-            self.fields[self.count] = Some((key, val.to_string()));
+            self.fields[self.count] = Some((key, sanitize(&val.to_string())));
             self.count += 1;
         } else {
             #[cfg(debug_assertions)]
