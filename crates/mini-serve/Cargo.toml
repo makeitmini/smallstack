@@ -1,7 +1,11 @@
 [package]
 name = "mini-serve"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
+
+[features]
+default = []
+err = ["dep:mini-err"]
 
 [dependencies]
 hyper = "1"
@@ -13,6 +17,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_qs = "0.13"
 futures-core = { version = "0.3", default-features = false, features = ["std"] }
+mini-err = { path = "../mini-err", version = "0.3", optional = true }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
+mini-err = { path = "../mini-err", version = "0.3" }

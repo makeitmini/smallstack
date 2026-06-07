@@ -19,3 +19,12 @@ impl fmt::Display for ServeError {
 }
 
 impl std::error::Error for ServeError {}
+
+/// Convert a `mini_err::Error` into a `ServeError` by mapping
+/// the error code and message directly.
+#[cfg(feature = "err")]
+impl From<mini_err::Error> for ServeError {
+    fn from(e: mini_err::Error) -> Self {
+        ServeError::new(e.code(), e.message())
+    }
+}
