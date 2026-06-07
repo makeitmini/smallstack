@@ -43,3 +43,21 @@ impl From<std::io::Error> for StaticError {
         StaticError::Io(e)
     }
 }
+
+#[cfg(feature = "err")]
+impl From<StaticError> for mini_err::Error {
+    fn from(e: StaticError) -> Self {
+        match e {
+            StaticError::NotFound(msg) => {
+                mini_err::Error::gone("static", format!("not found: {msg}"))
+            }
+            StaticError::Traversal(msg) => {
+                mini_err::Error::bad("static", format!("path traversal denied: {msg}"))
+            }
+            StaticError::Io(cause) => mini_err::Error::Io {
+                cause,
+                scope: "static",
+            },
+        }
+    }
+}
