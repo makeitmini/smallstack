@@ -1,6 +1,7 @@
 use std::fmt;
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     Io  { cause: std::io::Error, scope: &'static str },
     Net { msg: String,           scope: &'static str },

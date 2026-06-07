@@ -3,6 +3,7 @@ use std::fmt;
 use hyper::StatusCode;
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum StaticError {
     NotFound(String),
     Traversal(String),
