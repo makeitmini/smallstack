@@ -24,23 +24,23 @@ impl<T: Serialize> Json<T> {
         status: StatusCode,
     ) -> Result<Response<ResponseBody>, ServeError> {
         let body = serde_json::to_string(&self.0)
-            .map_err(|e| ServeError::new(500, format!("failed to serialize response: {e}")))?;
+            .map_err(|_| ServeError::new(500, "failed to serialize response"))?;
         Response::builder()
             .status(status)
             .header("content-type", "application/json")
             .body(BoxBody::new(Full::new(Bytes::from(body))))
-            .map_err(|e| ServeError::new(500, format!("failed to build response: {e}")))
+            .map_err(|_| ServeError::new(500, "failed to build response"))
     }
 }
 
 pub fn json<T: Serialize>(status: StatusCode, value: &T) -> Result<Response<ResponseBody>, ServeError> {
     let body = serde_json::to_string(value)
-        .map_err(|e| ServeError::new(500, format!("failed to serialize response: {e}")))?;
+        .map_err(|_| ServeError::new(500, "failed to serialize response"))?;
     Response::builder()
         .status(status)
         .header("content-type", "application/json")
         .body(BoxBody::new(Full::new(Bytes::from(body))))
-        .map_err(|e| ServeError::new(500, format!("failed to build response: {e}")))
+        .map_err(|_| ServeError::new(500, "failed to build response"))
 }
 
 pub fn redirect(location: &str) -> Response<ResponseBody> {

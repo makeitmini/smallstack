@@ -20,6 +20,6 @@ pub fn path_params<T: DeserializeOwned, B>(req: &Request<B>) -> Result<T, ServeE
         pairs.join("&")
     };
 
-    serde_qs::from_str(&qs).map_err(|e| ServeError::new(400, format!("invalid path params: {e}")))
+    serde_qs::from_str(&qs).map_err(|_| ServeError::new(400, "invalid path parameters"))
 }
 

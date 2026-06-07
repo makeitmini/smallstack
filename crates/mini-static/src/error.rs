@@ -30,6 +30,15 @@ impl std::error::Error for StaticError {
 }
 
 impl StaticError {
+    /// User-safe message that does not leak internal paths or OS error details.
+    pub fn user_message(&self) -> String {
+        match self {
+            StaticError::NotFound(_) => "not found".to_string(),
+            StaticError::Traversal(_) => "path traversal denied".to_string(),
+            StaticError::Io(_) => "internal server error".to_string(),
+        }
+    }
+
     pub fn status_code(&self) -> StatusCode {
         match self {
             StaticError::NotFound(_) => StatusCode::NOT_FOUND,

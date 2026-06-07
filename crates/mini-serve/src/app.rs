@@ -207,7 +207,7 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
     pub async fn bind(self, addr: SocketAddr) -> Result<(), ServeError> {
         let listener = TcpListener::bind(addr)
             .await
-            .map_err(|e| ServeError::new(500, e.to_string()))?;
+            .map_err(|_| ServeError::new(500, format!("failed to bind to {addr}")))?;
         let app = Arc::new(self);
         serve_inner(listener, app).await;
         Ok(())
@@ -217,10 +217,10 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
         let addr: SocketAddr = ([0, 0, 0, 0], 0).into();
         let listener = TcpListener::bind(addr)
             .await
-            .map_err(|e| ServeError::new(500, e.to_string()))?;
+            .map_err(|_| ServeError::new(500, "failed to bind to ephemeral port"))?;
         let port = listener
             .local_addr()
-            .map_err(|e| ServeError::new(500, e.to_string()))?
+            .map_err(|_| ServeError::new(500, "failed to get assigned port"))?
             .port();
         let app = Arc::new(self);
         tokio::spawn(async move {

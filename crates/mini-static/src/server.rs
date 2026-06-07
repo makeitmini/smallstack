@@ -203,15 +203,15 @@ async fn handle(
                     }
                     file_response(bytes, mime)
                 }
-                Err(e) => error_response(
+                Err(_) => error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    &format!("failed to read file: {e}"),
+                    "failed to read file",
                 ),
             }
         }
         Err(e) => {
             let status = e.status_code();
-            let msg = e.to_string();
+            let msg = e.user_message();
             error_response(status, &msg)
         }
     }
