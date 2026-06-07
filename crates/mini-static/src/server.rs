@@ -17,19 +17,22 @@ use crate::error::StaticError;
 use crate::handler::{Handler, RequestInfo, ResponseBody};
 use crate::mime::mime_type;
 use crate::resolve::resolve;
+use crate::transform::Transform;
 
 pub struct Server {
-    dir:      Arc<PathBuf>,
-    addr:     SocketAddr,
-    handlers: Vec<Arc<dyn Handler>>,
+    dir:       Arc<PathBuf>,
+    addr:      SocketAddr,
+    handlers:  Vec<Arc<dyn Handler>>,
+    transform: Option<Arc<dyn Transform>>,
 }
 
 impl Server {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         Server {
-            dir:      Arc::new(dir.into()),
-            addr:     ([127, 0, 0, 1], 0).into(),
-            handlers: Vec::new(),
+            dir:       Arc::new(dir.into()),
+            addr:      ([127, 0, 0, 1], 0).into(),
+            handlers:  Vec::new(),
+            transform: None,
         }
     }
 
@@ -43,6 +46,11 @@ impl Server {
         self
     }
 
+    pub fn with_transform(mut self, transform: impl Transform) -> Self {
+        self.transform = Some(Arc::new(transform));
+        self
+    }
+
     pub async fn run(self) -> Result<(), StaticError> {
         let listener = TcpListener::bind(self.addr)
             .await
@@ -50,16 +58,19 @@ impl Server {
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
         let handlers = Arc::new(self.handlers);
+        let transform: Option<Arc<dyn Transform>> = self.transform;
         loop {
             let (stream, _) = listener.accept().await.map_err(StaticError::Io)?;
             let dir = dir.clone();
             let handlers = handlers.clone();
+            let transform = transform.clone();
             tokio::spawn(async move {
                 let svc = service_fn(move |req: Request<Incoming>| {
                     let dir = dir.clone();
                     let handlers = handlers.clone();
+                    let transform = transform.clone();
                     async move {
-                        Ok::<_, Infallible>(handle(req, &dir, &handlers).await)
+                        Ok::<_, Infallible>(handle(req, &dir, &handlers, &transform).await)
                     }
                 });
                 let io = TokioIo::new(stream);
@@ -82,6 +93,7 @@ impl Server {
         let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
         let dir = Arc::new(dir);
         let handlers = Arc::new(self.handlers);
+        let transform: Option<Arc<dyn Transform>> = self.transform;
         tokio::spawn(async move {
             loop {
                 let (stream, _) = match listener.accept().await {
@@ -90,12 +102,14 @@ impl Server {
                 };
                 let dir = dir.clone();
                 let handlers = handlers.clone();
+                let transform = transform.clone();
                 tokio::spawn(async move {
                     let svc = service_fn(move |req: Request<Incoming>| {
                         let dir = dir.clone();
                         let handlers = handlers.clone();
+                        let transform = transform.clone();
                         async move {
-                            Ok::<_, Infallible>(handle(req, &dir, &handlers).await)
+                            Ok::<_, Infallible>(handle(req, &dir, &handlers, &transform).await)
                         }
                     });
                     let io = TokioIo::new(stream);
@@ -113,6 +127,7 @@ async fn handle(
     req: Request<Incoming>,
     dir: &Path,
     handlers: &[Arc<dyn Handler>],
+    transform: &Option<Arc<dyn Transform>>,
 ) -> Response<ResponseBody> {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
@@ -130,8 +145,11 @@ async fn handle(
     match resolve(dir, &path) {
         Ok(file_path) => {
             match tokio::fs::read(&file_path).await {
-                Ok(bytes) => {
+                Ok(mut bytes) => {
                     let mime = mime_type(&file_path);
+                    if let Some(ref t) = transform {
+                        bytes = t.apply(mime, bytes);
+                    }
                     Response::builder()
                         .status(StatusCode::OK)
                         .header("content-type", mime)
