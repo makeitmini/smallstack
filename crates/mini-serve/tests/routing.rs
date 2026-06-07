@@ -125,6 +125,23 @@ async fn wildcard_captures_remaining_path_segments() {
 }
 
 #[tokio::test]
+async fn head_falls_back_to_get_handler() {
+    let port = RouteBuilder::stateless()
+        .get("/hello", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .head(format!("http://localhost:{port}/hello"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
 async fn method_mismatch_returns_405() {
     let port = RouteBuilder::stateless()
         .get("/hello", handler(handle_hello))

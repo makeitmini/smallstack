@@ -162,7 +162,29 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                 }
             }
             None => {
-                if path_exists {
+                if method == Method::HEAD {
+                    // RFC 7231 §4.3.2: HEAD may be served by a GET handler
+                    if self.router.has_path(&path) {
+                        match self.router.match_route(&Method::GET, &path) {
+                            Some((handler, params)) => {
+                                let mut req = req;
+                                req.extensions_mut().insert(query_params);
+                                req.extensions_mut().insert(params);
+                                match handler(req, state).await {
+                                    Ok(resp) => resp,
+                                    Err(e) => error_response(
+                                        StatusCode::from_u16(e.code)
+                                            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                                        &e.message,
+                                    ),
+                                }
+                            }
+                            None => error_response(StatusCode::NOT_FOUND, "not found"),
+                        }
+                    } else {
+                        error_response(StatusCode::NOT_FOUND, "not found")
+                    }
+                } else if path_exists {
                     error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
                 } else {
                     error_response(StatusCode::NOT_FOUND, "not found")
