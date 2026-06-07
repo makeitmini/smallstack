@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "mini-static"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "http-body",
  "http-body-util",

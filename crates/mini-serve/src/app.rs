@@ -115,25 +115,8 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
             .await
             .map_err(|e| ServeError::new(500, e.to_string()))?;
         let app = Arc::new(self);
-        loop {
-            let (stream, _) = listener
-                .accept()
-                .await
-                .map_err(|e| ServeError::new(500, e.to_string()))?;
-            let app = app.clone();
-            tokio::spawn(async move {
-                let svc = service_fn(move |req: Request<Incoming>| {
-                    let app = app.clone();
-                    async move {
-                        Ok::<_, hyper::Error>(app.route(req).await)
-                    }
-                });
-                let io = TokioIo::new(stream);
-                let _ = AutoBuilder::new(TokioExecutor::new())
-                    .serve_connection(io, svc)
-                    .await;
-            });
-        }
+        serve_inner(listener, app).await;
+        Ok(())
     }
 
     pub async fn bind_ephemeral(self) -> Result<u16, ServeError> {
@@ -147,25 +130,7 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
             .port();
         let app = Arc::new(self);
         tokio::spawn(async move {
-            loop {
-                let (stream, _) = match listener.accept().await {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-                let app = app.clone();
-                tokio::spawn(async move {
-                    let svc = service_fn(move |req: Request<Incoming>| {
-                        let app = app.clone();
-                        async move {
-                            Ok::<_, hyper::Error>(app.route(req).await)
-                        }
-                    });
-                    let io = TokioIo::new(stream);
-                    let _ = AutoBuilder::new(TokioExecutor::new())
-                        .serve_connection(io, svc)
-                        .await;
-                });
-            }
+            serve_inner(listener, app).await;
         });
         Ok(port)
     }
@@ -174,6 +139,31 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
 impl App<()> {
     pub fn stateless() -> Self {
         App::new(())
+    }
+}
+
+async fn serve_inner<S: Clone + Send + Sync + 'static>(
+    listener: TcpListener,
+    app: Arc<App<S>>,
+) {
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let app = app.clone();
+        tokio::spawn(async move {
+            let svc = service_fn(move |req: Request<Incoming>| {
+                let app = app.clone();
+                async move {
+                    Ok::<_, hyper::Error>(app.route(req).await)
+                }
+            });
+            let io = TokioIo::new(stream);
+            let _ = AutoBuilder::new(TokioExecutor::new())
+                .serve_connection(io, svc)
+                .await;
+        });
     }
 }
 
