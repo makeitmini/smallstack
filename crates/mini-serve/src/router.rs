@@ -184,6 +184,8 @@ fn split_path(path: &str) -> Vec<String> {
         .collect()
 }
 
+// Inline tests OK per STANDARDS.md: Router is a pure-logic module
+// with no public API surface (Router/Node are crate-private).
 #[cfg(test)]
 mod tests {
     use super::*;

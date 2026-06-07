@@ -31,3 +31,26 @@ fn missing_file_returns_not_found() {
         other => panic!("expected NotFound, got {other:?}"),
     }
 }
+
+#[test]
+fn path_with_null_byte_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    match resolve(dir.path(), "/index.html\0") {
+        Err(StaticError::Traversal(_)) => {}
+        other => panic!("expected Traversal, got {other:?}"),
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn path_outside_root_via_symlink_component_is_rejected() {
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("target.txt"), b"outside").unwrap();
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
+    match resolve(dir.path(), "/link/target.txt") {
+        Err(StaticError::Traversal(_)) => {}
+        other => panic!("expected Traversal, got {other:?}"),
+    }
+}

@@ -75,6 +75,9 @@ should include this check for any crate that has sibling dep entries.
 ### Testing
 
 - All tests live in `tests/` as integration tests. No test code in `src/`.
+- Exception: pure-logic modules with no public API surface (e.g. `router.rs`'s trie)
+  may keep inline `#[cfg(test)]` unit tests for internal implementation coverage.
+  Every such exception must be justified by a comment at the module level.
 - Every test follows Arrange / Act / Assert explicitly.
 - Test names describe the scenario and the expected outcome, not the function
   under test: `stale_lamport_is_rejected` is correct; `test_append_event` is not.
