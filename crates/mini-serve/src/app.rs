@@ -12,6 +12,7 @@ use http_body_util::combinators::BoxBody;
 use http_body_util::Full;
 use tokio::net::TcpListener;
 
+use crate::body::{MaxBodySize, DEFAULT_MAX_BODY_SIZE};
 use crate::error::ServeError;
 use crate::handler::{Handler, ResponseBody};
 use crate::middleware::{CorsConfig, Middleware};
@@ -19,9 +20,10 @@ use crate::router::{QueryParams, Router};
 use crate::state::State;
 
 pub struct App<S> {
-    state:      Arc<S>,
-    router:     Arc<Router<S>>,
-    cors_config: Option<CorsConfig>,
+    state:          Arc<S>,
+    router:         Arc<Router<S>>,
+    cors_config:    Option<CorsConfig>,
+    max_body_size:  usize,
 }
 
 fn parse_query(query: Option<&str>) -> QueryParams {
@@ -114,9 +116,10 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
 impl<S: Clone + Send + Sync + 'static> App<S> {
     pub fn new(state: S) -> Self {
         App {
-            state:      Arc::new(state),
-            router:     Arc::new(Router::new()),
-            cors_config: None,
+            state:          Arc::new(state),
+            router:         Arc::new(Router::new()),
+            cors_config:    None,
+            max_body_size:  DEFAULT_MAX_BODY_SIZE,
         }
     }
 
@@ -152,6 +155,7 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                 let mut req = req;
                 req.extensions_mut().insert(query_params);
                 req.extensions_mut().insert(params);
+                req.extensions_mut().insert(MaxBodySize(self.max_body_size));
                 match handler(req, state).await {
                     Ok(resp) => resp,
                     Err(e) => error_response(
@@ -170,6 +174,7 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                                 let mut req = req;
                                 req.extensions_mut().insert(query_params);
                                 req.extensions_mut().insert(params);
+                                req.extensions_mut().insert(MaxBodySize(self.max_body_size));
                                 match handler(req, state).await {
                                     Ok(resp) => resp,
                                     Err(e) => error_response(
@@ -258,19 +263,21 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
 
 #[must_use = "RouteBuilder does nothing until .seal() is called"]
 pub struct RouteBuilder<S> {
-    state:      Arc<S>,
-    router:     Router<S>,
-    middleware: Vec<Middleware<S>>,
-    cors_config: Option<CorsConfig>,
+    state:          Arc<S>,
+    router:         Router<S>,
+    middleware:     Vec<Middleware<S>>,
+    cors_config:    Option<CorsConfig>,
+    max_body_size:  usize,
 }
 
 impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
     pub fn new(state: S) -> Self {
         RouteBuilder {
-            state:       Arc::new(state),
-            router:      Router::new(),
-            middleware:  Vec::new(),
-            cors_config: None,
+            state:          Arc::new(state),
+            router:         Router::new(),
+            middleware:     Vec::new(),
+            cors_config:    None,
+            max_body_size:  DEFAULT_MAX_BODY_SIZE,
         }
     }
 
@@ -281,6 +288,11 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
 
     pub fn with_cors(mut self, config: CorsConfig) -> Self {
         self.cors_config = Some(config);
+        self
+    }
+
+    pub fn with_max_body_size(mut self, max: usize) -> Self {
+        self.max_body_size = max;
         self
     }
 
@@ -308,9 +320,10 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
         let middleware = std::mem::take(&mut self.middleware);
         self.router.apply_middleware(&middleware);
         App {
-            state:       self.state,
-            router:      Arc::new(self.router),
-            cors_config: self.cors_config,
+            state:          self.state,
+            router:         Arc::new(self.router),
+            cors_config:    self.cors_config,
+            max_body_size:  self.max_body_size,
         }
     }
 }

@@ -12,7 +12,7 @@ mod router;
 mod state;
 
 pub use app::{App, GroupBuilder, RouteBuilder};
-pub use body::json_body;
+pub use body::{json_body, MaxBodySize, DEFAULT_MAX_BODY_SIZE};
 pub use error::ServeError;
 pub use extract::path_params;
 pub use handler::{body, handler, Handler, ResponseBody};
