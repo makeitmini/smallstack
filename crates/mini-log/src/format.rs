@@ -1,21 +1,8 @@
 use std::time::SystemTime;
 
-use crate::{Entry, Level};
+use serde_json::{Map, Value};
 
-fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
-    }
-    out
-}
+use crate::{Entry, Level};
 
 impl Entry<'_> {
     pub fn render(&self) -> String {
@@ -45,17 +32,14 @@ impl Entry<'_> {
             Level::Trace => "trace",
         };
 
-        let mut s = String::new();
-        s.push_str(&format!(
-            r#"{{"level":"{}","scope":"{}","msg":"{}""#,
-            level,
-            escape_json(self.logger.scope),
-            escape_json(self.msg),
-        ));
+        let mut map = Map::new();
+        map.insert("level".into(), Value::String(level.into()));
+        map.insert("scope".into(), Value::String(self.logger.scope.into()));
+        map.insert("msg".into(), Value::String(self.msg.into()));
 
         for i in 0..self.count {
             if let Some((key, ref val)) = self.fields[i] {
-                s.push_str(&format!(",\"{}\":\"{}\"", escape_json(key), escape_json(val)));
+                map.insert(key.to_string(), Value::String(val.clone()));
             }
         }
 
@@ -63,7 +47,8 @@ impl Entry<'_> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        s.push_str(&format!(",\"ts\":{ts}}}"));
-        s
+        map.insert("ts".into(), Value::Number(ts.into()));
+
+        serde_json::to_string(&Value::Object(map)).unwrap_or_default()
     }
 }
