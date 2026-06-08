@@ -4,6 +4,9 @@ use crate::Level;
 
 /// Replace characters that could be used for log injection with a safe substitute.
 fn sanitize(val: &str) -> String {
+    if !val.contains(|c| c == '\r' || c == '\n' || c == '\0') {
+        return val.to_owned();
+    }
     val.replace('\r', " ").replace('\n', " ").replace('\0', " ")
 }
 
