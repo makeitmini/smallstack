@@ -40,6 +40,22 @@ pub fn resolve(root: &Path, request_path: &str) -> Result<PathBuf, StaticError> 
     }
 }
 
+/// Decode percent-encoded sequences in a URL path.
+///
+/// # ASCII-only contract
+///
+/// This decoder treats each `%XX` pair as a single byte and casts it to
+/// `char` via `byte as char`. This is correct for ASCII (0x00–0x7F) and
+/// intentionally produces replacement characters for multi-byte UTF-8
+/// sequences such as `%C3%A9` (`é`). Non-ASCII paths will fail
+/// `Path::canonicalize` and return `StaticError::NotFound`.
+///
+/// **Do not change this to a UTF-8-aware decoder.** The traversal guard
+/// is `canonicalize()` + `starts_with(root)`, which is the authoritative
+/// check. The `..` substring check is an early-exit optimisation only.
+/// A UTF-8-aware decoder that reassembles multi-byte sequences would need
+/// its own traversal analysis; this function deliberately avoids that
+/// complexity.
 fn percent_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();

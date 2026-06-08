@@ -54,3 +54,22 @@ fn path_outside_root_via_symlink_component_is_rejected() {
         other => panic!("expected Traversal, got {other:?}"),
     }
 }
+
+#[test]
+fn multibyte_percent_encoded_path_does_not_resolve_outside_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = resolve(dir.path(), "/%C3%A9/../../../etc/passwd");
+    assert!(
+        matches!(result, Err(StaticError::Traversal(_)) | Err(StaticError::NotFound(_))),
+        "must not escape root: {result:?}"
+    );
+}
+
+#[test]
+fn double_encoded_dotdot_does_not_escape_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = resolve(dir.path(), "/%2e%2e/%2e%2e/etc/passwd");
+    assert!(
+        matches!(result, Err(StaticError::Traversal(_)) | Err(StaticError::NotFound(_)))
+    );
+}
