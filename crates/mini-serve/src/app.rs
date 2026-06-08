@@ -29,12 +29,17 @@ const MAX_QUERY_LEN: usize = 4_096;
 /// Default connection timeout for idle HTTP connections.
 const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Application-level error handler. Replaces the default JSON error responses.
+pub type ErrorHandler =
+    Arc<dyn Fn(StatusCode, &str) -> Response<ResponseBody> + Send + Sync>;
+
 pub struct App<S> {
     state:              Arc<S>,
     router:             Arc<Router<S>>,
     cors_config:        Option<CorsConfig>,
     max_body_size:      usize,
     connection_timeout: Duration,
+    error_handler:      ErrorHandler,
 }
 
 fn parse_query(query: Option<&str>) -> QueryParams {
@@ -124,6 +129,10 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
         .unwrap()
 }
 
+fn default_error_handler() -> ErrorHandler {
+    Arc::new(|status, message| error_response(status, message))
+}
+
 impl<S: Clone + Send + Sync + 'static> App<S> {
     pub fn new(state: S) -> Self {
         App {
@@ -132,16 +141,17 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
             cors_config:        None,
             max_body_size:      DEFAULT_MAX_BODY_SIZE,
             connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+            error_handler:      default_error_handler(),
         }
     }
 
     pub async fn route(&self, req: Request<Incoming>) -> Response<ResponseBody> {
         // Reject oversized path or query before any allocation or routing.
         if req.uri().path().len() > MAX_PATH_LEN {
-            return error_response(StatusCode::BAD_REQUEST, "path too long");
+            return (self.error_handler)(StatusCode::BAD_REQUEST, "path too long");
         }
         if req.uri().query().map(|q| q.len()).unwrap_or(0) > MAX_QUERY_LEN {
-            return error_response(StatusCode::BAD_REQUEST, "query string too long");
+            return (self.error_handler)(StatusCode::BAD_REQUEST, "query string too long");
         }
 
         let method = req.method().clone();
@@ -178,7 +188,7 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                 req.extensions_mut().insert(MaxBodySize(self.max_body_size));
                 match handler(req, state).await {
                     Ok(resp) => resp,
-                    Err(e) => error_response(
+                    Err(e) => (self.error_handler)(
                         StatusCode::from_u16(e.code)
                             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                         &e.message,
@@ -206,22 +216,22 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                                         );
                                         Response::from_parts(parts, BoxBody::new(Empty::new()))
                                     }
-                                    Err(e) => error_response(
+                                    Err(e) => (self.error_handler)(
                                         StatusCode::from_u16(e.code)
                                             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                                         &e.message,
                                     ),
                                 }
                             }
-                            None => error_response(StatusCode::NOT_FOUND, "not found"),
+                            None => (self.error_handler)(StatusCode::NOT_FOUND, "not found"),
                         }
                     } else {
-                        error_response(StatusCode::NOT_FOUND, "not found")
+                        (self.error_handler)(StatusCode::NOT_FOUND, "not found")
                     }
                 } else if path_exists {
-                    error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
+                    (self.error_handler)(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
                 } else {
-                    error_response(StatusCode::NOT_FOUND, "not found")
+                    (self.error_handler)(StatusCode::NOT_FOUND, "not found")
                 }
             }
         };
@@ -299,6 +309,7 @@ pub struct RouteBuilder<S> {
     cors_config:        Option<CorsConfig>,
     max_body_size:      usize,
     connection_timeout: Duration,
+    error_handler:      ErrorHandler,
 }
 
 impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
@@ -310,6 +321,7 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
             cors_config:        None,
             max_body_size:      DEFAULT_MAX_BODY_SIZE,
             connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+            error_handler:      default_error_handler(),
         }
     }
 
@@ -330,6 +342,14 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
 
     pub fn with_connection_timeout(mut self, d: Duration) -> Self {
         self.connection_timeout = d;
+        self
+    }
+
+    pub fn with_error_handler(
+        mut self,
+        f: impl Fn(StatusCode, &str) -> Response<ResponseBody> + Send + Sync + 'static,
+    ) -> Self {
+        self.error_handler = Arc::new(f);
         self
     }
 
@@ -362,6 +382,7 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
             cors_config:        self.cors_config,
             max_body_size:      self.max_body_size,
             connection_timeout: self.connection_timeout,
+            error_handler:      self.error_handler,
         }
     }
 }
