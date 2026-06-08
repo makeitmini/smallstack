@@ -1,6 +1,6 @@
 [package]
 name = "mini-serve"
-version = "0.3.12"
+version = "0.3.13"
 edition.workspace = true
 
 [features]
@@ -13,7 +13,7 @@ hyper = "1"
 hyper-util = { version = "0.1", features = ["tokio", "http1", "server-auto"] }
 http-body-util = "0.1"
 http-body = "1"
-tokio = { version = "1", features = ["net", "rt", "macros"] }
+tokio = { version = "1", features = ["net", "rt", "macros", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_qs = "0.13"

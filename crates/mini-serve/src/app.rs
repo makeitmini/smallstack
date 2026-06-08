@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use hyper::body::Bytes;
 use hyper::body::Incoming;
@@ -25,11 +26,15 @@ const MAX_PATH_LEN: usize = 8_192;
 /// Maximum query string length in bytes.
 const MAX_QUERY_LEN: usize = 4_096;
 
+/// Default connection timeout for idle HTTP connections.
+const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub struct App<S> {
-    state:          Arc<S>,
-    router:         Arc<Router<S>>,
-    cors_config:    Option<CorsConfig>,
-    max_body_size:  usize,
+    state:              Arc<S>,
+    router:             Arc<Router<S>>,
+    cors_config:        Option<CorsConfig>,
+    max_body_size:      usize,
+    connection_timeout: Duration,
 }
 
 fn parse_query(query: Option<&str>) -> QueryParams {
@@ -122,10 +127,11 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
 impl<S: Clone + Send + Sync + 'static> App<S> {
     pub fn new(state: S) -> Self {
         App {
-            state:          Arc::new(state),
-            router:         Arc::new(Router::new()),
-            cors_config:    None,
-            max_body_size:  DEFAULT_MAX_BODY_SIZE,
+            state:              Arc::new(state),
+            router:             Arc::new(Router::new()),
+            cors_config:        None,
+            max_body_size:      DEFAULT_MAX_BODY_SIZE,
+            connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
         }
     }
 
@@ -260,6 +266,7 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
             Err(_) => continue,
         };
         let app = app.clone();
+        let timeout_duration = app.connection_timeout;
         tokio::spawn(async move {
             let svc = service_fn(move |req: Request<Incoming>| {
                 let app = app.clone();
@@ -268,30 +275,32 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
                 }
             });
             let io = TokioIo::new(stream);
-            let _ = AutoBuilder::new(TokioExecutor::new())
-                .serve_connection(io, svc)
-                .await;
+            let builder = AutoBuilder::new(TokioExecutor::new());
+            let conn = builder.serve_connection(io, svc);
+            let _ = tokio::time::timeout(timeout_duration, conn).await;
         });
     }
 }
 
 #[must_use = "RouteBuilder does nothing until .seal() is called"]
 pub struct RouteBuilder<S> {
-    state:          Arc<S>,
-    router:         Router<S>,
-    middleware:     Vec<Middleware<S>>,
-    cors_config:    Option<CorsConfig>,
-    max_body_size:  usize,
+    state:              Arc<S>,
+    router:             Router<S>,
+    middleware:         Vec<Middleware<S>>,
+    cors_config:        Option<CorsConfig>,
+    max_body_size:      usize,
+    connection_timeout: Duration,
 }
 
 impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
     pub fn new(state: S) -> Self {
         RouteBuilder {
-            state:          Arc::new(state),
-            router:         Router::new(),
-            middleware:     Vec::new(),
-            cors_config:    None,
-            max_body_size:  DEFAULT_MAX_BODY_SIZE,
+            state:              Arc::new(state),
+            router:             Router::new(),
+            middleware:         Vec::new(),
+            cors_config:        None,
+            max_body_size:      DEFAULT_MAX_BODY_SIZE,
+            connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
         }
     }
 
@@ -307,6 +316,11 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
 
     pub fn with_max_body_size(mut self, max: usize) -> Self {
         self.max_body_size = max;
+        self
+    }
+
+    pub fn with_connection_timeout(mut self, d: Duration) -> Self {
+        self.connection_timeout = d;
         self
     }
 
@@ -334,10 +348,11 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
         let middleware = std::mem::take(&mut self.middleware);
         self.router.apply_middleware(&middleware);
         App {
-            state:          self.state,
-            router:         Arc::new(self.router),
-            cors_config:    self.cors_config,
-            max_body_size:  self.max_body_size,
+            state:              self.state,
+            router:             Arc::new(self.router),
+            cors_config:        self.cors_config,
+            max_body_size:      self.max_body_size,
+            connection_timeout: self.connection_timeout,
         }
     }
 }

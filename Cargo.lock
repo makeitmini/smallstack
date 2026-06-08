@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "mini-serve"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "futures-core",
  "http-body",
