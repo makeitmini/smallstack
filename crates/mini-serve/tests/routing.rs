@@ -1,6 +1,6 @@
 use hyper::{Response, StatusCode};
 use hyper::body::Bytes;
-use mini_serve::{body, handler, RouteBuilder, ServeError};
+use mini_serve::{body, handler, json, RouteBuilder, ServeError};
 
 async fn handle_hello(
     _req: hyper::Request<hyper::body::Incoming>,
@@ -139,6 +139,32 @@ async fn head_falls_back_to_get_handler() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn head_response_has_correct_headers_and_no_body() {
+    let port = RouteBuilder::stateless()
+        .get("/data", handler(|_, _| async {
+            json(StatusCode::OK, &serde_json::json!({"hello": "world"}))
+        }))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .head(format!("http://127.0.0.1:{port}/data"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "application/json"
+    );
+    assert_eq!(resp.content_length(), Some(0));
 }
 
 #[tokio::test]

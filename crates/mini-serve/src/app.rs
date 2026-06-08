@@ -10,7 +10,7 @@ use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use http_body_util::combinators::BoxBody;
-use http_body_util::Full;
+use http_body_util::{Empty, Full};
 use tokio::net::TcpListener;
 
 use crate::body::{MaxBodySize, DEFAULT_MAX_BODY_SIZE};
@@ -196,7 +196,16 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
                                 req.extensions_mut().insert(params);
                                 req.extensions_mut().insert(MaxBodySize(self.max_body_size));
                                 match handler(req, state).await {
-                                    Ok(resp) => resp,
+                                    Ok(resp) => {
+                                        // RFC 7231 §4.3.2: HEAD must return identical
+                                        // headers to GET but with an empty body.
+                                        let (mut parts, _body) = resp.into_parts();
+                                        parts.headers.insert(
+                                            hyper::header::CONTENT_LENGTH,
+                                            hyper::header::HeaderValue::from_static("0"),
+                                        );
+                                        Response::from_parts(parts, BoxBody::new(Empty::new()))
+                                    }
                                     Err(e) => error_response(
                                         StatusCode::from_u16(e.code)
                                             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
