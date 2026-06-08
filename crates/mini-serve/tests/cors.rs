@@ -94,9 +94,9 @@ async fn cors_preflight_without_origin_is_not_preflight() {
 }
 
 #[tokio::test]
-async fn cors_with_credentials_echos_origin() {
+async fn cors_with_credentials_echos_specific_origin() {
     let config = CorsConfig::builder()
-        .allow_origin("*")
+        .allow_origin("https://myapp.com")
         .allow_credentials(true)
         .build();
     let port = RouteBuilder::stateless()
@@ -238,4 +238,28 @@ async fn cors_expose_headers_appear_in_response() {
         resp.headers().get("access-control-expose-headers").unwrap(),
         "X-Result"
     );
+}
+
+#[test]
+#[should_panic(expected = "CORS misconfiguration")]
+fn wildcard_origin_with_credentials_panics_in_debug() {
+    CorsConfig::builder()
+        .allow_origin("*")
+        .allow_credentials(true)
+        .build();
+}
+
+#[test]
+fn specific_origin_with_credentials_is_valid() {
+    let _ = CorsConfig::builder()
+        .allow_origin("https://app.example.com")
+        .allow_credentials(true)
+        .build();
+}
+
+#[test]
+fn wildcard_origin_without_credentials_is_valid() {
+    let _ = CorsConfig::builder()
+        .allow_origin("*")
+        .build();
 }

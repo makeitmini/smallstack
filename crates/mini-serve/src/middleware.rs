@@ -161,6 +161,25 @@ impl CorsConfigBuilder {
 
     pub fn build(self) -> CorsConfig {
         let allow_all_origins = self.allow_origins.len() == 1 && self.allow_origins[0] == "*";
+
+        // Credentialed wildcard is a browser-rejected misconfiguration: any
+        // origin receives credentials. Panic in debug; warn in release so the
+        // mistake surfaces at startup, not silently in production.
+        if self.credentials && allow_all_origins {
+            #[cfg(debug_assertions)]
+            panic!(
+                "CORS misconfiguration: allow_origin(\"*\") with allow_credentials(true) \
+                 grants credentialed access to every origin. \
+                 Use an explicit origin list instead."
+            );
+            #[cfg(not(debug_assertions))]
+            eprintln!(
+                "WARNING [mini-serve]: CORS misconfiguration — \
+                 wildcard origin with credentials enabled. \
+                 This grants credentialed cross-origin access to all origins."
+            );
+        }
+
         CorsConfig {
             allow_origins:     self.allow_origins,
             allow_all_origins,
