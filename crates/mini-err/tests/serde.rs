@@ -101,3 +101,19 @@ fn round_trip_gone_variant() {
     assert_eq!(deserialized.message(), "record deleted");
     assert_eq!(deserialized.code(), 404);
 }
+
+#[test]
+fn deserialize_same_scope_many_times_does_not_leak_unboundedly() {
+    let json = r#"{"scope":"parse","kind":"bad","message":"oops","code":400}"#;
+    for _ in 0..10_000 {
+        let e: Error = serde_json::from_str(json).unwrap();
+        assert_eq!(e.scope(), "parse");
+    }
+}
+
+#[test]
+fn deserialize_with_arbitrary_scope_preserves_string() {
+    let json = r#"{"scope":"my-custom-scope","kind":"bad","message":"x","code":400}"#;
+    let e: Error = serde_json::from_str(json).unwrap();
+    assert_eq!(e.scope(), "my-custom-scope");
+}

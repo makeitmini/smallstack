@@ -2,9 +2,29 @@ use crate::Error;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::fmt;
+use std::sync::{Mutex, OnceLock};
 
 // Serialized form:
 // { "scope": "parse", "kind": "bad", "message": "missing field 'name'", "code": 400 }
+
+/// Global interner for deserialized scope strings.
+///
+/// Each unique scope string is leaked at most once and reused thereafter,
+/// bounding the per-process leak to the number of distinct scope values
+/// ever deserialized (not per-request).
+fn intern_scope(s: &str) -> &'static str {
+    static POOL: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+    let mut pool = POOL
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .expect("scope interner lock");
+    if let Some(&existing) = pool.iter().find(|&&e| e == s) {
+        return existing;
+    }
+    let leaked: &'static str = Box::leak(s.to_owned().into_boxed_str());
+    pool.push(leaked);
+    leaked
+}
 
 impl Serialize for Error {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -48,9 +68,7 @@ impl<'de> Visitor<'de> for ErrorVisitor {
         let kind = kind.unwrap_or_default();
         let message = message.unwrap_or_default();
 
-        // Leak the scope string — this is a known tradeoff for serde round-trip
-        // of an enum whose scope field is &'static str.
-        let scope: &'static str = Box::leak(scope.into_boxed_str());
+        let scope: &'static str = intern_scope(&scope);
 
         Ok(match kind.as_str() {
             "io" => Error::Io {
