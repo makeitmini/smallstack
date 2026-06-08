@@ -19,6 +19,12 @@ use crate::middleware::{CorsConfig, Middleware};
 use crate::router::{QueryParams, Router};
 use crate::state::State;
 
+/// Maximum request URI path length in bytes.
+const MAX_PATH_LEN: usize = 8_192;
+
+/// Maximum query string length in bytes.
+const MAX_QUERY_LEN: usize = 4_096;
+
 pub struct App<S> {
     state:          Arc<S>,
     router:         Arc<Router<S>>,
@@ -124,6 +130,14 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
     }
 
     pub async fn route(&self, req: Request<Incoming>) -> Response<ResponseBody> {
+        // Reject oversized path or query before any allocation or routing.
+        if req.uri().path().len() > MAX_PATH_LEN {
+            return error_response(StatusCode::BAD_REQUEST, "path too long");
+        }
+        if req.uri().query().map(|q| q.len()).unwrap_or(0) > MAX_QUERY_LEN {
+            return error_response(StatusCode::BAD_REQUEST, "query string too long");
+        }
+
         let method = req.method().clone();
         let path = req.uri().path().to_string();
         let state = State::new(S::clone(&self.state));
