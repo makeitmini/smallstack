@@ -1,17 +1,55 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use hyper::body::{Bytes, Incoming};
+use futures_core::Stream;
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::{Request, Response, StatusCode};
 use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use http_body_util::combinators::BoxBody;
-use http_body_util::Full;
+use http_body_util::{Full, StreamBody};
+use tokio::io::{AsyncRead, ReadBuf};
 use tokio::net::TcpListener;
+
+/// Chunk size for streaming file reads — 64 KB per frame.
+const FILE_CHUNK_SIZE: usize = 65_536;
+
+/// Adapter that converts a `tokio::fs::File` (or any `AsyncRead`) into a
+/// `Stream` of `Frame<Bytes>` values, yielding one chunk per read.
+struct ReadStream<R> {
+    reader: R,
+    buf: Vec<u8>,
+}
+
+impl<R: AsyncRead + Unpin> Stream for ReadStream<R> {
+    type Item = Result<Frame<Bytes>, Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        this.buf.resize(FILE_CHUNK_SIZE, 0);
+        let mut read_buf = ReadBuf::new(&mut this.buf);
+        let reader = Pin::new(&mut this.reader);
+        match reader.poll_read(cx, &mut read_buf) {
+            Poll::Ready(Ok(())) => {
+                let n = read_buf.filled().len();
+                if n == 0 {
+                    Poll::Ready(None)
+                } else {
+                    let chunk = Bytes::copy_from_slice(&this.buf[..n]);
+                    Poll::Ready(Some(Ok(Frame::data(chunk))))
+                }
+            }
+            Poll::Ready(Err(_)) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 use crate::error::StaticError;
 use crate::handler::{Handler, RequestInfo, ResponseBody};
@@ -195,18 +233,41 @@ async fn handle(
 
     match resolve(dir, &path) {
         Ok(file_path) => {
-            match tokio::fs::read(&file_path).await {
-                Ok(mut bytes) => {
-                    let mime = mime_type(&file_path);
-                    if let Some(ref t) = transform {
-                        bytes = t.apply(mime, bytes);
+            let mime = mime_type(&file_path);
+            // Buffered path: required when a transform is registered (operates
+            // on Vec<u8>) or when livereload injection needs full HTML in debug
+            // builds. Otherwise stream for constant memory per connection.
+            let needs_buffer = transform.is_some()
+                || (cfg!(debug_assertions) && mime.starts_with("text/html"));
+            if needs_buffer {
+                match tokio::fs::read(&file_path).await {
+                    Ok(mut bytes) => {
+                        if let Some(ref t) = transform {
+                            bytes = t.apply(mime, bytes);
+                        }
+                        file_response(bytes, mime)
                     }
-                    file_response(bytes, mime)
+                    Err(_) => error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "failed to read file",
+                    ),
                 }
-                Err(_) => error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "failed to read file",
-                ),
+            } else {
+                match tokio::fs::File::open(&file_path).await {
+                    Ok(file) => {
+                        let stream = ReadStream { reader: file, buf: Vec::with_capacity(FILE_CHUNK_SIZE) };
+                        let body = BoxBody::new(StreamBody::new(stream));
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", mime)
+                            .body(body)
+                            .unwrap()
+                    }
+                    Err(_) => error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "failed to read file",
+                    ),
+                }
             }
         }
         Err(e) => {

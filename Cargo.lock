@@ -623,8 +623,9 @@ dependencies = [
 
 [[package]]
 name = "mini-static"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
+ "futures-core",
  "http-body",
  "http-body-util",
  "hyper",
