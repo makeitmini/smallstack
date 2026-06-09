@@ -69,6 +69,17 @@ where
         .unwrap()
 }
 
+pub(crate) fn sse_frame(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for line in s.lines() {
+        out.push_str("data: ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push('\n');
+    out
+}
+
 struct SseStream<S>(S);
 
 impl<S> Stream for SseStream<S>
@@ -81,11 +92,22 @@ where
         let inner = Pin::new(&mut self.get_mut().0);
         match inner.poll_next(cx) {
             Poll::Ready(Some(s)) => {
-                Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(format!("data: {s}\n\n"))))))
+                Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(sse_frame(&s))))))
             }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sse_frame_prefixes_each_line_with_data() {
+        let result = sse_frame("line1\nevent: pwn");
+        assert_eq!(result, "data: line1\ndata: event: pwn\n\n");
     }
 }
 
