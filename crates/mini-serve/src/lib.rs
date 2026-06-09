@@ -11,7 +11,7 @@ mod response;
 mod router;
 mod state;
 
-pub use app::{App, GroupBuilder, RouteBuilder};
+pub use app::{App, GroupBuilder, RouteBuilder, bind_with_shutdown};
 pub use body::{json_body, MaxBodySize, DEFAULT_MAX_BODY_SIZE};
 pub use error::ServeError;
 pub use extract::path_params;
