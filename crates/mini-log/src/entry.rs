@@ -36,6 +36,7 @@ pub struct Entry<'a> {
     pub msg:    &'static str,
     pub fields: [Option<(&'static str, String)>; 8],
     pub count:  usize,
+    pub overflow_count: usize,
 }
 
 impl<'a> Entry<'a> {
@@ -57,8 +58,8 @@ impl<'a> Entry<'a> {
             self.fields[self.count] = Some((key, sanitize(&val.to_string())));
             self.count += 1;
         } else {
-            #[cfg(debug_assertions)]
-            panic!("entry field overflow: max 8 fields");
+            self.overflow_count += 1;
+            self.fields[7] = Some(("fields_truncated", self.overflow_count.to_string()));
         }
         self
     }

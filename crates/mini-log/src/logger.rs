@@ -98,22 +98,22 @@ impl Logger {
     }
 
     pub fn error(&self, msg: &'static str) -> Entry<'_> {
-        Entry { logger: self, level: Level::Error, msg, fields: Default::default(), count: 0 }
+        Entry { logger: self, level: Level::Error, msg, fields: Default::default(), count: 0, overflow_count: 0 }
     }
 
     pub fn warn(&self, msg: &'static str) -> Entry<'_> {
-        Entry { logger: self, level: Level::Warn, msg, fields: Default::default(), count: 0 }
+        Entry { logger: self, level: Level::Warn, msg, fields: Default::default(), count: 0, overflow_count: 0 }
     }
 
     pub fn info(&self, msg: &'static str) -> Entry<'_> {
-        Entry { logger: self, level: Level::Info, msg, fields: Default::default(), count: 0 }
+        Entry { logger: self, level: Level::Info, msg, fields: Default::default(), count: 0, overflow_count: 0 }
     }
 
     pub fn debug(&self, msg: &'static str) -> Entry<'_> {
-        Entry { logger: self, level: Level::Debug, msg, fields: Default::default(), count: 0 }
+        Entry { logger: self, level: Level::Debug, msg, fields: Default::default(), count: 0, overflow_count: 0 }
     }
 
     pub fn trace(&self, msg: &'static str) -> Entry<'_> {
-        Entry { logger: self, level: Level::Trace, msg, fields: Default::default(), count: 0 }
+        Entry { logger: self, level: Level::Trace, msg, fields: Default::default(), count: 0, overflow_count: 0 }
     }
 }

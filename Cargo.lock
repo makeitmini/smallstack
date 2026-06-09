@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "mini-log"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "mini-err",
  "serde_json",

@@ -79,6 +79,21 @@ fn eight_fields_all_appear_in_output() {
 }
 
 #[test]
+fn field_overflow_is_marked_not_silent() {
+    let (log, buf) = test_logger();
+    let mut e = log.info("m");
+    for i in 0..10 {
+        e = e.field("k", i);
+    }
+    e.emit();
+    let out = output(&buf);
+    assert!(
+        out.contains("fields_truncated=2"),
+        "expected overflow marker 'fields_truncated=2' in output, got: {out}"
+    );
+}
+
+#[test]
 fn field_value_with_control_chars_is_sanitized() {
     let (log, buf) = test_logger();
     log.info("inject")
