@@ -20,6 +20,9 @@ use tokio::net::TcpListener;
 /// Chunk size for streaming file reads — 64 KB per frame.
 const FILE_CHUNK_SIZE: usize = 65_536;
 
+/// Default maximum concurrent connections.
+const DEFAULT_MAX_CONNECTIONS: usize = 1024;
+
 /// Adapter that converts a `tokio::fs::File` (or any `AsyncRead`) into a
 /// `Stream` of `Frame<Bytes>` values, yielding one chunk per read.
 struct ReadStream<R> {
@@ -62,23 +65,25 @@ use crate::transform::Transform;
 type LogFn = Arc<dyn Fn(&str, &str, u16) + Send + Sync>;
 
 pub struct Server {
-    dir:       Arc<PathBuf>,
-    addr:      SocketAddr,
-    handlers:  Vec<Arc<dyn Handler>>,
-    transform: Option<Arc<dyn Transform>>,
+    dir:            Arc<PathBuf>,
+    addr:           SocketAddr,
+    handlers:       Vec<Arc<dyn Handler>>,
+    transform:      Option<Arc<dyn Transform>>,
+    max_connections: usize,
     #[cfg(feature = "log")]
-    logger:    Option<Arc<mini_log::Logger>>,
+    logger:         Option<Arc<mini_log::Logger>>,
 }
 
 impl Server {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         Server {
-            dir:       Arc::new(dir.into()),
-            addr:      ([127, 0, 0, 1], 0).into(),
-            handlers:  Vec::new(),
-            transform: None,
+            dir:             Arc::new(dir.into()),
+            addr:            ([127, 0, 0, 1], 0).into(),
+            handlers:        Vec::new(),
+            transform:       None,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
             #[cfg(feature = "log")]
-            logger:    None,
+            logger:          None,
         }
     }
 
@@ -97,6 +102,11 @@ impl Server {
         self
     }
 
+    pub fn with_max_connections(mut self, max: usize) -> Self {
+        self.max_connections = max;
+        self
+    }
+
     #[cfg(feature = "log")]
     pub fn with_logger(mut self, logger: mini_log::Logger) -> Self {
         self.logger = Some(Arc::new(logger));
@@ -104,6 +114,7 @@ impl Server {
     }
 
     pub async fn run(mut self) -> Result<(), StaticError> {
+        let max_connections = self.max_connections;
         let listener = TcpListener::bind(self.addr)
             .await
             .map_err(StaticError::Io)?;
@@ -125,11 +136,12 @@ impl Server {
         });
         #[cfg(not(feature = "log"))]
         let log = None::<LogFn>;
-        serve_inner(listener, dir, handlers, transform, log).await;
+        serve_inner(listener, dir, handlers, transform, log, max_connections).await;
         Ok(())
     }
 
     pub async fn run_ephemeral(mut self) -> Result<u16, StaticError> {
+        let max_connections = self.max_connections;
         let addr: SocketAddr = ([0, 0, 0, 0], 0).into();
         let listener = TcpListener::bind(addr)
             .await
@@ -157,7 +169,7 @@ impl Server {
         #[cfg(not(feature = "log"))]
         let log = None::<LogFn>;
         tokio::spawn(async move {
-            serve_inner(listener, dir, handlers, transform, log).await;
+            serve_inner(listener, dir, handlers, transform, log, max_connections).await;
         });
         Ok(port)
     }
@@ -177,17 +189,22 @@ async fn serve_inner(
     handlers: Arc<Vec<Arc<dyn Handler>>>,
     transform: Option<Arc<dyn Transform>>,
     log: Option<LogFn>,
+    max_connections: usize,
 ) {
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(max_connections));
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
             Err(_) => continue,
         };
+        let sem = semaphore.clone();
+        let permit = sem.acquire_owned().await;
         let dir = dir.clone();
         let handlers = handlers.clone();
         let transform = transform.clone();
         let log = log.clone();
         tokio::spawn(async move {
+            let _permit = permit.expect("semaphore closed");
             let svc = service_fn(move |req: Request<Incoming>| {
                 let dir = dir.clone();
                 let handlers = handlers.clone();

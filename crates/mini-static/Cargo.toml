@@ -1,6 +1,6 @@
 [package]
 name = "mini-static"
-version = "0.3.8"
+version = "0.3.9"
 edition.workspace = true
 
 [features]

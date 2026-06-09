@@ -29,6 +29,9 @@ const MAX_QUERY_LEN: usize = 4_096;
 /// Default timeout for reading request headers (idle timeout per-request).
 const DEFAULT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Default maximum concurrent connections.
+const DEFAULT_MAX_CONNECTIONS: usize = 1024;
+
 /// Application-level error handler. Replaces the default JSON error responses.
 pub type ErrorHandler =
     Arc<dyn Fn(StatusCode, &str) -> Response<ResponseBody> + Send + Sync>;
@@ -39,6 +42,7 @@ pub struct App<S> {
     cors_config:         Option<CorsConfig>,
     max_body_size:       usize,
     header_read_timeout: Duration,
+    max_connections:     usize,
     error_handler:       ErrorHandler,
 }
 
@@ -138,10 +142,11 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
         App {
             state:              Arc::new(state),
             router:             Arc::new(Router::new()),
-            cors_config:        None,
-            max_body_size:      DEFAULT_MAX_BODY_SIZE,
+            cors_config:         None,
+            max_body_size:       DEFAULT_MAX_BODY_SIZE,
             header_read_timeout: DEFAULT_HEADER_READ_TIMEOUT,
-            error_handler:      default_error_handler(),
+            max_connections:     DEFAULT_MAX_CONNECTIONS,
+            error_handler:       default_error_handler(),
         }
     }
 
@@ -280,13 +285,17 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
     app: Arc<App<S>>,
 ) {
     let header_read_timeout = app.header_read_timeout;
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(app.max_connections));
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
             Err(_) => continue,
         };
+        let sem = semaphore.clone();
+        let permit = sem.acquire_owned().await;
         let app = app.clone();
         tokio::spawn(async move {
+            let _permit = permit.expect("semaphore closed");
             let svc = service_fn(move |req: Request<Incoming>| {
                 let app = app.clone();
                 async move {
@@ -311,6 +320,7 @@ pub struct RouteBuilder<S> {
     cors_config:         Option<CorsConfig>,
     max_body_size:       usize,
     header_read_timeout: Duration,
+    max_connections:     usize,
     error_handler:       ErrorHandler,
 }
 
@@ -323,6 +333,7 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
             cors_config:         None,
             max_body_size:       DEFAULT_MAX_BODY_SIZE,
             header_read_timeout: DEFAULT_HEADER_READ_TIMEOUT,
+            max_connections:     DEFAULT_MAX_CONNECTIONS,
             error_handler:       default_error_handler(),
         }
     }
@@ -344,6 +355,11 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
 
     pub fn with_header_read_timeout(mut self, d: Duration) -> Self {
         self.header_read_timeout = d;
+        self
+    }
+
+    pub fn with_max_connections(mut self, max: usize) -> Self {
+        self.max_connections = max;
         self
     }
 
@@ -384,6 +400,7 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
             cors_config:         self.cors_config,
             max_body_size:       self.max_body_size,
             header_read_timeout: self.header_read_timeout,
+            max_connections:     self.max_connections,
             error_handler:       self.error_handler,
         }
     }
