@@ -235,6 +235,39 @@ async fn put_and_delete_routes_work() {
 }
 
 #[tokio::test]
+async fn overlapping_routes_backtrack_to_param() {
+    async fn handle_param(
+        req: hyper::Request<hyper::body::Incoming>,
+        _state: mini_serve::State<()>,
+    ) -> Result<hyper::Response<mini_serve::ResponseBody>, ServeError> {
+        let params = req.extensions().get::<mini_serve::PathParams>().cloned().unwrap_or_default();
+        let x = params.0.get("x").cloned().unwrap_or_default();
+        Ok(Response::new(body(Bytes::from(x))))
+    }
+
+    async fn handle_b(
+        _req: hyper::Request<hyper::body::Incoming>,
+        _state: mini_serve::State<()>,
+    ) -> Result<hyper::Response<mini_serve::ResponseBody>, ServeError> {
+        Ok(Response::new(body(Bytes::from("b"))))
+    }
+
+    let port = RouteBuilder::stateless()
+        .get("/a/b", handler(handle_b))
+        .get("/:x/c", handler(handle_param))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::get(format!("http://localhost:{port}/a/c"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "expected /a/c to match /:x/c with x=a");
+    assert_eq!(resp.text().await.unwrap(), "a", "expected /:x/c handler to return x value");
+}
+
+#[tokio::test]
 async fn head_on_post_only_path_returns_not_found() {
     async fn handle_post(
         _req: hyper::Request<hyper::body::Incoming>,

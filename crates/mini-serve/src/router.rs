@@ -98,27 +98,9 @@ impl<S: Clone + Send + Sync + 'static> Router<S> {
     /// Returns true if any route is registered for the given path (ignoring method).
     pub fn has_path(&self, path: &str) -> bool {
         let segments = split_path(path);
-        let mut node = &self.root;
-
-        for seg in &segments {
-            // Try exact match
-            if let Some(child) = node.children.iter().find(|c| c.segment == *seg) {
-                node = child;
-                continue;
-            }
-            // Try param match
-            if let Some(child) = node.children.iter().find(|c| !c.param_name.is_empty()) {
-                node = child;
-                continue;
-            }
-            // Try wildcard
-            if node.children.iter().any(|c| c.is_wildcard) {
-                return true;
-            }
-            return false;
-        }
-
-        !node.handlers.is_empty()
+        let mut params = PathParams::default();
+        Self::find_node(&self.root, &segments, 0, &mut params)
+            .map_or(false, |n| !n.handlers.is_empty())
     }
 
     pub fn match_route<'a>(
@@ -128,34 +110,60 @@ impl<S: Clone + Send + Sync + 'static> Router<S> {
     ) -> Option<(&'a Handler<S>, PathParams)> {
         let segments = split_path(path);
         let mut params = PathParams::default();
-        let mut node = &self.root;
+        let node = Self::find_node(&self.root, &segments, 0, &mut params)?;
+        node.handlers.get(method).map(|h| (h, params))
+    }
 
-        for (i, seg) in segments.iter().enumerate() {
-            // Try exact match first
-            if let Some(child) = node.children.iter().find(|c| c.segment == *seg) {
-                node = child;
-                continue;
-            }
-
-            // Try param match
-            if let Some(child) = node.children.iter().find(|c| !c.param_name.is_empty()) {
-                params.0.insert(child.param_name.clone(), seg.clone());
-                node = child;
-                continue;
-            }
-
-            // Try wildcard match — captures all remaining segments
-            if let Some(child) = node.children.iter().find(|c| c.is_wildcard) {
-                let remaining: String = segments[i..].join("/");
-                params.0.insert("*".to_string(), remaining);
-                node = child;
-                break;
-            }
-
-            return None;
+    /// Recursive backtracking search for a matching trie node.
+    ///
+    /// Tries children in precedence order: static → param → wildcard.
+    /// On a dead end it backtracks to try the next-choice child so that
+    /// overlapping routes like `/a/b` and `/:x/c` both work (e.g. `/a/c`
+    /// falls back from the `a` subtree to `:x`).
+    fn find_node<'a>(
+        node: &'a Node<S>,
+        segments: &[String],
+        idx: usize,
+        params: &mut PathParams,
+    ) -> Option<&'a Node<S>> {
+        if idx == segments.len() {
+            return Some(node);
         }
 
-        node.handlers.get(method).map(|h| (h, params))
+        let seg = &segments[idx];
+
+        // 1. Static children — exact segment match
+        for child in &node.children {
+            if !child.is_wildcard && child.param_name.is_empty() && child.segment == *seg {
+                let mut p = params.clone();
+                if let Some(found) = Self::find_node(child, segments, idx + 1, &mut p) {
+                    *params = p;
+                    return Some(found);
+                }
+            }
+        }
+
+        // 2. Param children — captures segment as named parameter
+        for child in &node.children {
+            if !child.is_wildcard && !child.param_name.is_empty() {
+                let mut p = params.clone();
+                p.0.insert(child.param_name.clone(), seg.clone());
+                if let Some(found) = Self::find_node(child, segments, idx + 1, &mut p) {
+                    *params = p;
+                    return Some(found);
+                }
+            }
+        }
+
+        // 3. Wildcard child — captures all remaining segments
+        for child in &node.children {
+            if child.is_wildcard {
+                params.0.insert("*".to_string(), segments[idx..].join("/"));
+                return Some(child);
+            }
+        }
+
+        None
     }
 
     pub fn apply_middleware(&mut self, middleware: &[crate::middleware::Middleware<S>]) {
