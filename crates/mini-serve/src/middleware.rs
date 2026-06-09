@@ -67,6 +67,10 @@ impl CorsConfig {
 
         headers.push(("access-control-allow-origin".to_string(), origin.to_string()));
 
+        if origin != "*" {
+            headers.push(("vary".to_string(), "origin".to_string()));
+        }
+
         if self.credentials {
             headers.push(("access-control-allow-credentials".to_string(), "true".to_string()));
         }
@@ -199,6 +203,17 @@ pub(crate) fn apply_headers(
     for (name, value) in headers {
         if let Ok(n) = name.parse::<hyper::header::HeaderName>() {
             if let Ok(v) = value.parse::<hyper::header::HeaderValue>() {
+                if n == hyper::header::VARY {
+                    if let Some(existing) = resp.headers_mut().get(&n) {
+                        if let Ok(existing_str) = existing.to_str() {
+                            let merged = format!("{existing_str}, {value}");
+                            if let Ok(merged_v) = merged.parse::<hyper::header::HeaderValue>() {
+                                resp.headers_mut().insert(n, merged_v);
+                                continue;
+                            }
+                        }
+                    }
+                }
                 resp.headers_mut().insert(n, v);
             }
         }

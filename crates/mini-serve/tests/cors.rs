@@ -263,3 +263,91 @@ fn wildcard_origin_without_credentials_is_valid() {
         .allow_origin("*")
         .build();
 }
+
+#[tokio::test]
+async fn specific_origin_cors_response_has_vary_origin() {
+    let config = CorsConfig::builder()
+        .allow_origin("https://myapp.com")
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://localhost:{port}/"))
+        .header("origin", "https://myapp.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("vary").unwrap(),
+        "origin"
+    );
+}
+
+#[tokio::test]
+async fn wildcard_origin_cors_response_does_not_have_vary_origin() {
+    let config = CorsConfig::builder()
+        .allow_origin("*")
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_hello))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://localhost:{port}/"))
+        .header("origin", "https://example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert!(resp.headers().get("vary").is_none());
+}
+
+async fn handle_with_vary(
+    _req: hyper::Request<hyper::body::Incoming>,
+    _state: mini_serve::State<()>,
+) -> Result<hyper::Response<mini_serve::ResponseBody>, ServeError> {
+    let mut resp = hyper::Response::new(mini_serve::body(
+        hyper::body::Bytes::from("cached"),
+    ));
+    resp.headers_mut().insert(
+        hyper::header::VARY,
+        hyper::header::HeaderValue::from_static("accept-encoding"),
+    );
+    Ok(resp)
+}
+
+#[tokio::test]
+async fn cors_vary_merges_with_existing_vary_header() {
+    let config = CorsConfig::builder()
+        .allow_origin("https://myapp.com")
+        .build();
+    let port = RouteBuilder::stateless()
+        .with_cors(config)
+        .get("/", handler(handle_with_vary))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://localhost:{port}/"))
+        .header("origin", "https://myapp.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let vary = resp.headers().get("vary").unwrap().to_str().unwrap();
+    assert!(vary.contains("origin"), "should contain origin, got: {vary}");
+    assert!(vary.contains("accept-encoding"), "should contain accept-encoding, got: {vary}");
+}
