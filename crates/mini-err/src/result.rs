@@ -11,8 +11,9 @@ impl<T, E: Into<Error>> ErrorExt<T> for std::result::Result<T, E> {
         self.map_err(|e| {
             let mut err: Error = e.into();
             match &mut err {
-                Error::Io { scope: s, .. } => {
+                Error::Io { scope: s, msg: m, .. } => {
                     *s = scope;
+                    *m = Some(msg.into());
                 }
                 Error::Net { msg: m, scope: s }
                 | Error::Cfg { msg: m, scope: s }

@@ -29,7 +29,7 @@ fn net_is_502() {
 #[test]
 fn io_is_500() {
     let io = std::io::Error::new(std::io::ErrorKind::Other, "disk full");
-    let err = Error::Io { cause: io, scope: "fs" };
+    let err = Error::Io { cause: io, scope: "fs", msg: None };
     assert_eq!(err.code(), 500);
 }
 
@@ -47,15 +47,12 @@ fn io_conversion_scope_is_io() {
 }
 
 #[test]
-fn context_preserves_original_message() {
+fn context_on_io_sets_message() {
     let io = std::io::Error::new(std::io::ErrorKind::NotFound, "config.toml");
-    let result: mini_err::Result<i32> = Err(io).context("fs", "failed to open");
+    let result: mini_err::Result<i32> = Err(io).context("fs", "failed to read config");
     let err = result.unwrap_err();
-    assert!(
-        err.message().contains("config.toml"),
-        "expected original message preserved, got: {}",
-        err.message()
-    );
+    assert_eq!(err.message(), "failed to read config");
+    assert!(err.scope() == "fs");
 }
 
 #[test]
@@ -80,10 +77,12 @@ fn io_errors_with_same_kind_and_scope_are_equal() {
     let a = Error::Io {
         cause: std::io::Error::new(std::io::ErrorKind::NotFound, "file a"),
         scope: "fs",
+        msg: None,
     };
     let b = Error::Io {
         cause: std::io::Error::new(std::io::ErrorKind::NotFound, "file b"),
         scope: "fs",
+        msg: None,
     };
     assert_eq!(a, b);
 }
@@ -121,7 +120,7 @@ fn from_utf8_error_converts_to_bad() {
 #[test]
 fn display_format_for_io_variant() {
     let io = std::io::Error::new(std::io::ErrorKind::NotFound, "config.toml");
-    let err = Error::Io { cause: io, scope: "fs" };
+    let err = Error::Io { cause: io, scope: "fs", msg: None };
     assert_eq!(err.to_string(), "fs:io: config.toml");
 }
 
@@ -190,7 +189,7 @@ fn context_on_cfg_overwrites_message() {
 #[test]
 fn error_source_for_io_returns_cause() {
     let io = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
-    let err = Error::Io { cause: io, scope: "fs" };
+    let err = Error::Io { cause: io, scope: "fs", msg: None };
     let source = std::error::Error::source(&err as &dyn std::error::Error);
     assert!(source.is_some(), "Io variant should expose source");
     assert_eq!(source.unwrap().to_string(), "missing");
@@ -201,7 +200,7 @@ fn error_source_for_io_returns_cause() {
 #[test]
 fn kind_strings_are_correct() {
     let io = std::io::Error::new(std::io::ErrorKind::Other, "");
-    assert_eq!(Error::Io { cause: io, scope: "" }.kind(), "io");
+    assert_eq!(Error::Io { cause: io, scope: "", msg: None }.kind(), "io");
     assert_eq!(Error::net("", "").kind(), "net");
     assert_eq!(Error::cfg("", "").kind(), "cfg");
     assert_eq!(Error::bad("", "").kind(), "bad");

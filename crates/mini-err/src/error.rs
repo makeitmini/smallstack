@@ -3,7 +3,7 @@ use std::fmt;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    Io  { cause: std::io::Error, scope: &'static str },
+    Io  { cause: std::io::Error, scope: &'static str, msg: Option<String> },
     Net { msg: String,           scope: &'static str },
     Cfg { msg: String,           scope: &'static str },
     Bad { msg: String,           scope: &'static str },
@@ -49,7 +49,7 @@ impl Error {
 
     pub fn message(&self) -> String {
         match self {
-            Error::Io { cause, .. } => cause.to_string(),
+            Error::Io { cause, msg, .. } => msg.clone().unwrap_or_else(|| cause.to_string()),
             Error::Net { msg, .. } => msg.clone(),
             Error::Cfg { msg, .. }  => msg.clone(),
             Error::Bad { msg, .. }  => msg.clone(),
@@ -70,7 +70,7 @@ impl Error {
 
 impl From<std::io::Error> for Error {
     fn from(cause: std::io::Error) -> Self {
-        Error::Io { cause, scope: "io" }
+        Error::Io { cause, scope: "io", msg: None }
     }
 }
 
@@ -125,7 +125,7 @@ impl std::error::Error for Error {
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Error::Io { cause: a, scope: sa }, Error::Io { cause: b, scope: sb }) => {
+            (Error::Io { cause: a, scope: sa, .. }, Error::Io { cause: b, scope: sb, .. }) => {
                 a.kind() == b.kind() && sa == sb
             }
             (Error::Net { msg: a, scope: sa }, Error::Net { msg: b, scope: sb }) => {

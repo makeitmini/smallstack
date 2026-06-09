@@ -36,7 +36,7 @@ fn serialized_json_has_expected_shape() {
 #[test]
 fn round_trip_io_variant() {
     let io = std::io::Error::new(std::io::ErrorKind::NotFound, "config.toml");
-    let err = Error::Io { cause: io, scope: "fs" };
+    let err = Error::Io { cause: io, scope: "fs", msg: None };
     let json = serde_json::to_string(&err).unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["scope"], "fs");

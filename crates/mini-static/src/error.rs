@@ -67,6 +67,7 @@ impl From<StaticError> for mini_err::Error {
             StaticError::Io(cause) => mini_err::Error::Io {
                 cause,
                 scope: "static",
+                msg: None,
             },
         }
     }

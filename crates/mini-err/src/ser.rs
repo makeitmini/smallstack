@@ -93,6 +93,7 @@ impl<'de> Visitor<'de> for ErrorVisitor {
             "io" => Error::Io {
                 cause: std::io::Error::other(message),
                 scope,
+                msg: None,
             },
             "net" => Error::Net { msg: message, scope },
             "cfg" => Error::Cfg { msg: message, scope },
