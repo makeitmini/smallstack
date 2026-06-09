@@ -1,4 +1,3 @@
-use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -6,7 +5,9 @@ use hyper::body::Bytes;
 use hyper::Response;
 use http_body_util::combinators::BoxBody;
 
-pub type ResponseBody = BoxBody<Bytes, Infallible>;
+use crate::error::StaticError;
+
+pub type ResponseBody = BoxBody<Bytes, StaticError>;
 
 pub struct RequestInfo {
     pub method: String,

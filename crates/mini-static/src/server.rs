@@ -12,10 +12,23 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use http_body::Body;
 use http_body_util::combinators::BoxBody;
-use http_body_util::{Full, StreamBody};
+use http_body_util::{BodyExt, Full, StreamBody};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::net::TcpListener;
+
+use crate::error::StaticError;
+
+/// Wraps any body into `BoxBody<Bytes, StaticError>`, converting errors via
+/// `Into<StaticError>` (which covers `Infallible` and `StaticError` itself).
+pub fn into_body<B>(body: B) -> BoxBody<Bytes, StaticError>
+where
+    B: Body<Data = Bytes> + Send + Sync + 'static,
+    B::Error: Into<StaticError>,
+{
+    BoxBody::new(body.map_err(Into::into))
+}
 
 /// Chunk size for streaming file reads — 64 KB per frame.
 const FILE_CHUNK_SIZE: usize = 65_536;
@@ -30,31 +43,45 @@ struct ReadStream<R> {
     buf: Vec<u8>,
 }
 
+fn read_classification(io_result: &std::io::Result<()>, n: usize) -> &'static str {
+    match io_result {
+        Ok(()) if n == 0 => "eof",
+        Ok(()) => "chunk",
+        Err(_) => "error",
+    }
+}
+
 impl<R: AsyncRead + Unpin> Stream for ReadStream<R> {
-    type Item = Result<Frame<Bytes>, Infallible>;
+    type Item = Result<Frame<Bytes>, StaticError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         this.buf.resize(FILE_CHUNK_SIZE, 0);
         let mut read_buf = ReadBuf::new(&mut this.buf);
         let reader = Pin::new(&mut this.reader);
-        match reader.poll_read(cx, &mut read_buf) {
-            Poll::Ready(Ok(())) => {
+        let poll = reader.poll_read(cx, &mut read_buf);
+        match poll {
+            Poll::Ready(result) => {
                 let n = read_buf.filled().len();
-                if n == 0 {
-                    Poll::Ready(None)
-                } else {
-                    let chunk = Bytes::copy_from_slice(&this.buf[..n]);
-                    Poll::Ready(Some(Ok(Frame::data(chunk))))
+                match read_classification(&result, n) {
+                    "eof" => Poll::Ready(None),
+                    "chunk" => {
+                        let chunk = Bytes::copy_from_slice(&this.buf[..n]);
+                        Poll::Ready(Some(Ok(Frame::data(chunk))))
+                    }
+                    "error" => {
+                        let err = result.unwrap_err();
+                        eprintln!("[mini-static] read error: {err}");
+                        Poll::Ready(Some(Err(StaticError::Io(err))))
+                    }
+                    _ => unreachable!(),
                 }
             }
-            Poll::Ready(Err(_)) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
-use crate::error::StaticError;
 use crate::handler::{Handler, RequestInfo, ResponseBody};
 #[cfg(debug_assertions)]
 use crate::live;
@@ -273,7 +300,7 @@ async fn handle(
                 match tokio::fs::File::open(&file_path).await {
                     Ok(file) => {
                         let stream = ReadStream { reader: file, buf: Vec::with_capacity(FILE_CHUNK_SIZE) };
-                        let body = BoxBody::new(StreamBody::new(stream));
+                        let body = into_body(StreamBody::new(stream));
                         Response::builder()
                             .status(StatusCode::OK)
                             .header("content-type", mime)
@@ -301,7 +328,7 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
     Response::builder()
         .status(status)
         .header("content-type", "application/json")
-        .body(BoxBody::new(Full::new(Bytes::from(json))))
+        .body(into_body(Full::new(Bytes::from(json))))
         .unwrap()
 }
 
@@ -310,7 +337,7 @@ fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", mime)
-        .body(BoxBody::new(Full::new(Bytes::from(bytes))))
+        .body(into_body(Full::new(Bytes::from(bytes))))
         .unwrap()
 }
 

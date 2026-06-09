@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::fmt;
 
 use hyper::StatusCode;
@@ -51,6 +52,12 @@ impl StaticError {
 impl From<std::io::Error> for StaticError {
     fn from(e: std::io::Error) -> Self {
         StaticError::Io(e)
+    }
+}
+
+impl From<Infallible> for StaticError {
+    fn from(e: Infallible) -> Self {
+        match e {}
     }
 }
 

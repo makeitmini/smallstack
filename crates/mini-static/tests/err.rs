@@ -1,5 +1,6 @@
 #[cfg(feature = "err")]
 mod err_tests {
+    use std::convert::Infallible;
     use std::fs;
     use std::future::Future;
     use std::pin::Pin;
@@ -7,7 +8,7 @@ mod err_tests {
     use hyper::body::Bytes;
     use hyper::Response;
     use http_body_util::combinators::BoxBody;
-    use http_body_util::Full;
+    use http_body_util::{BodyExt, Full};
 
     use mini_static::{Handler, RequestInfo, ResponseBody, Server, StaticError};
 
@@ -26,11 +27,12 @@ mod err_tests {
                     "code": mini_err.code(),
                 });
                 let json = serde_json::to_string(&body).unwrap();
+                let b = BoxBody::new(Full::new(Bytes::from(json)).map_err(|e: Infallible| match e {}));
                 Some(
                     Response::builder()
                         .status(mini_err.code())
                         .header("content-type", "application/json")
-                        .body(BoxBody::new(Full::new(Bytes::from(json))))
+                        .body(b)
                         .unwrap(),
                 )
             })

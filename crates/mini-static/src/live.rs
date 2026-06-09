@@ -9,9 +9,10 @@ use hyper::body::Bytes;
 use hyper::{Response, StatusCode};
 use http_body::{Body, Frame};
 use http_body_util::combinators::BoxBody;
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+use crate::error::StaticError;
 use crate::handler::{Handler, RequestInfo, ResponseBody};
 
 #[derive(Clone, Debug)]
@@ -110,7 +111,7 @@ struct SseStream {
 
 impl Body for SseStream {
     type Data = Bytes;
-    type Error = std::convert::Infallible;
+    type Error = StaticError;
 
     fn poll_frame(
         mut self: Pin<&mut Self>,
@@ -215,6 +216,8 @@ pub(crate) fn make_html_response(bytes: Vec<u8>, mime: &str) -> Response<Respons
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", mime)
-        .body(BoxBody::new(Full::new(Bytes::from(bytes))))
+        .body(BoxBody::new(
+            Full::new(Bytes::from(bytes)).map_err(|e: std::convert::Infallible| match e {}),
+        ))
         .unwrap()
 }

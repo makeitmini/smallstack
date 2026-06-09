@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::fs;
 use std::future::Future;
 use std::pin::Pin;
@@ -5,7 +6,7 @@ use std::pin::Pin;
 use hyper::body::Bytes;
 use hyper::Response;
 use http_body_util::combinators::BoxBody;
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 
 use mini_static::{Handler, RequestInfo, ResponseBody, Server};
 
@@ -15,11 +16,12 @@ impl Handler for PingHandler {
     fn handle(&self, info: RequestInfo) -> Pin<Box<dyn Future<Output = Option<Response<ResponseBody>>> + Send + '_>> {
         Box::pin(async move {
             if info.path == "/api/ping" {
+                let b = BoxBody::new(Full::new(Bytes::from("pong")).map_err(|e: Infallible| match e {}));
                 Some(
                     Response::builder()
                         .status(200)
                         .header("content-type", "text/plain")
-                        .body(BoxBody::new(Full::new(Bytes::from("pong"))))
+                        .body(b)
                         .unwrap(),
                 )
             } else {
@@ -35,11 +37,12 @@ impl Handler for InterceptHandler {
     fn handle(&self, info: RequestInfo) -> Pin<Box<dyn Future<Output = Option<Response<ResponseBody>>> + Send + '_>> {
         Box::pin(async move {
             if info.path == "/index.html" {
+                let b = BoxBody::new(Full::new(Bytes::from("handler_wins")).map_err(|e: Infallible| match e {}));
                 Some(
                     Response::builder()
                         .status(200)
                         .header("content-type", "text/plain")
-                        .body(BoxBody::new(Full::new(Bytes::from("handler_wins"))))
+                        .body(b)
                         .unwrap(),
                 )
             } else {
