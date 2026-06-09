@@ -39,7 +39,7 @@ async fn path_beyond_limit_returns_400() {
 async fn idle_connection_is_closed_after_timeout() {
     let port = RouteBuilder::stateless()
         .get("/", handler(|_, _| async { Ok(empty(StatusCode::OK)) }))
-        .with_connection_timeout(Duration::from_millis(100))
+        .with_header_read_timeout(Duration::from_millis(100))
         .seal()
         .bind_ephemeral()
         .await

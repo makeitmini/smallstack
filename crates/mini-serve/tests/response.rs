@@ -203,3 +203,61 @@ async fn sse_stream_contains_all_events_in_order() {
         .unwrap();
     assert_eq!(body, "data: event a\n\ndata: event b\n\ndata: event c\n\n");
 }
+
+use tokio::time::{interval, Duration, Interval};
+
+/// Stream that yields one event per `interval`, up to `total` events.
+/// The first tick is immediate (tokio::time::interval contract).
+struct TimedSseStream {
+    count: usize,
+    total: usize,
+    ticker: Interval,
+}
+
+impl TimedSseStream {
+    fn new(total: usize, interval_dur: Duration) -> Self {
+        Self { count: 0, total, ticker: interval(interval_dur) }
+    }
+}
+
+impl Stream for TimedSseStream {
+    type Item = String;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.count >= self.total {
+            return Poll::Ready(None);
+        }
+        match self.ticker.poll_tick(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(_) => {
+                self.count += 1;
+                Poll::Ready(Some(format!("event {}", self.count)))
+            }
+        }
+    }
+}
+
+async fn handle_sse_timed(
+    _req: hyper::Request<hyper::body::Incoming>,
+    _state: mini_serve::State<()>,
+) -> Result<hyper::Response<mini_serve::ResponseBody>, ServeError> {
+    Ok(sse_stream(TimedSseStream::new(12, Duration::from_millis(200))))
+}
+
+#[tokio::test]
+async fn sse_stream_not_killed_by_header_read_timeout() {
+    let port = RouteBuilder::stateless()
+        .with_header_read_timeout(Duration::from_millis(500))
+        .get("/events", handler(handle_sse_timed))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+
+    let resp = reqwest::get(format!("http://localhost:{port}/events"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert_eq!(body.matches("event ").count(), 12, "expected 12 events over 2.4s, got body: {body:?}");
+}

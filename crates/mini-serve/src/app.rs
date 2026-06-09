@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use hyper::body::Bytes;
 use hyper::body::Incoming;
+use hyper::server::conn::http1;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper::service::service_fn;
-use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use hyper_util::rt::TokioTimer;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{Empty, Full};
 use tokio::net::TcpListener;
@@ -26,20 +26,20 @@ const MAX_PATH_LEN: usize = 8_192;
 /// Maximum query string length in bytes.
 const MAX_QUERY_LEN: usize = 4_096;
 
-/// Default connection timeout for idle HTTP connections.
-const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
+/// Default timeout for reading request headers (idle timeout per-request).
+const DEFAULT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Application-level error handler. Replaces the default JSON error responses.
 pub type ErrorHandler =
     Arc<dyn Fn(StatusCode, &str) -> Response<ResponseBody> + Send + Sync>;
 
 pub struct App<S> {
-    state:              Arc<S>,
-    router:             Arc<Router<S>>,
-    cors_config:        Option<CorsConfig>,
-    max_body_size:      usize,
-    connection_timeout: Duration,
-    error_handler:      ErrorHandler,
+    state:               Arc<S>,
+    router:              Arc<Router<S>>,
+    cors_config:         Option<CorsConfig>,
+    max_body_size:       usize,
+    header_read_timeout: Duration,
+    error_handler:       ErrorHandler,
 }
 
 fn parse_query(query: Option<&str>) -> QueryParams {
@@ -140,7 +140,7 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
             router:             Arc::new(Router::new()),
             cors_config:        None,
             max_body_size:      DEFAULT_MAX_BODY_SIZE,
-            connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+            header_read_timeout: DEFAULT_HEADER_READ_TIMEOUT,
             error_handler:      default_error_handler(),
         }
     }
@@ -279,13 +279,13 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
     listener: TcpListener,
     app: Arc<App<S>>,
 ) {
+    let header_read_timeout = app.header_read_timeout;
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
             Err(_) => continue,
         };
         let app = app.clone();
-        let timeout_duration = app.connection_timeout;
         tokio::spawn(async move {
             let svc = service_fn(move |req: Request<Incoming>| {
                 let app = app.clone();
@@ -294,34 +294,36 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
                 }
             });
             let io = TokioIo::new(stream);
-            let builder = AutoBuilder::new(TokioExecutor::new());
+            let mut builder = http1::Builder::new();
+            builder.timer(TokioTimer::new());
+            builder.header_read_timeout(header_read_timeout);
             let conn = builder.serve_connection(io, svc);
-            let _ = tokio::time::timeout(timeout_duration, conn).await;
+            let _ = conn.await;
         });
     }
 }
 
 #[must_use = "RouteBuilder does nothing until .seal() is called"]
 pub struct RouteBuilder<S> {
-    state:              Arc<S>,
-    router:             Router<S>,
-    middleware:         Vec<Middleware<S>>,
-    cors_config:        Option<CorsConfig>,
-    max_body_size:      usize,
-    connection_timeout: Duration,
-    error_handler:      ErrorHandler,
+    state:               Arc<S>,
+    router:              Router<S>,
+    middleware:          Vec<Middleware<S>>,
+    cors_config:         Option<CorsConfig>,
+    max_body_size:       usize,
+    header_read_timeout: Duration,
+    error_handler:       ErrorHandler,
 }
 
 impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
     pub fn new(state: S) -> Self {
         RouteBuilder {
-            state:              Arc::new(state),
-            router:             Router::new(),
-            middleware:         Vec::new(),
-            cors_config:        None,
-            max_body_size:      DEFAULT_MAX_BODY_SIZE,
-            connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
-            error_handler:      default_error_handler(),
+            state:               Arc::new(state),
+            router:              Router::new(),
+            middleware:          Vec::new(),
+            cors_config:         None,
+            max_body_size:       DEFAULT_MAX_BODY_SIZE,
+            header_read_timeout: DEFAULT_HEADER_READ_TIMEOUT,
+            error_handler:       default_error_handler(),
         }
     }
 
@@ -340,8 +342,8 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
         self
     }
 
-    pub fn with_connection_timeout(mut self, d: Duration) -> Self {
-        self.connection_timeout = d;
+    pub fn with_header_read_timeout(mut self, d: Duration) -> Self {
+        self.header_read_timeout = d;
         self
     }
 
@@ -379,10 +381,10 @@ impl<S: Clone + Send + Sync + 'static> RouteBuilder<S> {
         App {
             state:              self.state,
             router:             Arc::new(self.router),
-            cors_config:        self.cors_config,
-            max_body_size:      self.max_body_size,
-            connection_timeout: self.connection_timeout,
-            error_handler:      self.error_handler,
+            cors_config:         self.cors_config,
+            max_body_size:       self.max_body_size,
+            header_read_timeout: self.header_read_timeout,
+            error_handler:       self.error_handler,
         }
     }
 }
