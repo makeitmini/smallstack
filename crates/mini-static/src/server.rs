@@ -305,7 +305,23 @@ async fn handle(
                             .status(StatusCode::OK)
                             .header("content-type", mime)
                             .body(body)
-                            .unwrap()
+                            .unwrap_or_else(|_| {
+                                // Fallback to a static 500 response if header construction fails
+                                Response::builder()
+                                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                    .body(into_body(Full::new(Bytes::from(
+                                        r#"{"message":"internal server error"}"#.to_string()
+                                    ))))
+                                    .unwrap_or_else(|_| {
+                                        // Even if the fallback building fails, return a hardcoded response
+                                        Response::builder()
+                                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                            .body(into_body(Full::new(Bytes::from(
+                                                r#"{"message":"internal server error"}"#.to_string()
+                                            ))))
+                                            .unwrap()
+                                    })
+                            })
                     }
                     Err(_) => error_response(
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -329,7 +345,23 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
         .status(status)
         .header("content-type", "application/json")
         .body(into_body(Full::new(Bytes::from(json))))
-        .unwrap()
+        .unwrap_or_else(|_| {
+            // Fallback to a static 500 response if header construction fails
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(into_body(Full::new(Bytes::from(
+                    r#"{"message":"internal server error"}"#.to_string()
+                ))))
+                .unwrap_or_else(|_| {
+                    // Even if the fallback building fails, return a hardcoded response
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(into_body(Full::new(Bytes::from(
+                            r#"{"message":"internal server error"}"#.to_string()
+                        ))))
+                        .unwrap()
+                })
+        })
 }
 
 #[cfg(not(debug_assertions))]
@@ -338,7 +370,23 @@ fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
         .status(StatusCode::OK)
         .header("content-type", mime)
         .body(into_body(Full::new(Bytes::from(bytes))))
-        .unwrap()
+        .unwrap_or_else(|_| {
+            // Fallback to a static 500 response if header construction fails
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(into_body(Full::new(Bytes::from(
+                    r#"{"message":"internal server error"}"#.to_string()
+                ))))
+                .unwrap_or_else(|_| {
+                    // Even if the fallback building fails, return a hardcoded response
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(into_body(Full::new(Bytes::from(
+                            r#"{"message":"internal server error"}"#.to_string()
+                        ))))
+                        .unwrap()
+                })
+        })
 }
 
 #[cfg(debug_assertions)]

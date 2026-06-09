@@ -48,14 +48,38 @@ pub fn redirect(location: &str) -> Response<ResponseBody> {
         .status(StatusCode::FOUND)
         .header("location", location)
         .body(BoxBody::new(Full::new(Bytes::new())))
-        .unwrap()
+        .unwrap_or_else(|_| {
+            // Fallback to a static 500 response if header construction fails
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(BoxBody::new(Full::new(Bytes::new())))
+                .unwrap_or_else(|_| {
+                    // Even if the fallback building fails, return a hardcoded response
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(BoxBody::new(Full::new(Bytes::new())))
+                        .unwrap()
+                })
+        })
 }
 
 pub fn empty(status: StatusCode) -> Response<ResponseBody> {
     Response::builder()
         .status(status)
         .body(BoxBody::new(Full::new(Bytes::new())))
-        .unwrap()
+        .unwrap_or_else(|_| {
+            // Fallback to a static 500 response if header construction fails
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(BoxBody::new(Full::new(Bytes::new())))
+                .unwrap_or_else(|_| {
+                    // Even if the fallback building fails, return a hardcoded response
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(BoxBody::new(Full::new(Bytes::new())))
+                        .unwrap()
+                })
+        })
 }
 
 pub fn sse_stream<S>(events: S) -> Response<ResponseBody>
@@ -66,7 +90,19 @@ where
     Response::builder()
         .header("content-type", "text/event-stream")
         .body(body)
-        .unwrap()
+        .unwrap_or_else(|_| {
+            // Fallback to a static 500 response if header construction fails
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(BoxBody::new(Full::new(Bytes::new())))
+                .unwrap_or_else(|_| {
+                    // Even if the fallback building fails, return a hardcoded response
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(BoxBody::new(Full::new(Bytes::new())))
+                        .unwrap()
+                })
+        })
 }
 
 pub(crate) fn sse_frame(s: &str) -> String {

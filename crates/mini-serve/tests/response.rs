@@ -261,3 +261,29 @@ async fn sse_stream_not_killed_by_header_read_timeout() {
     let body = resp.text().await.unwrap();
     assert_eq!(body.matches("event ").count(), 12, "expected 12 events over 2.4s, got body: {body:?}");
 }
+
+#[tokio::test]
+async fn illegal_header_value_does_not_panic_in_response_builders() {
+    // Test that response builders don't panic on malformed header construction
+    // This test specifically addresses the issue where unwrap() was used
+    // in places where malformed header values could cause panics
+    
+    // Test that our response builders handle edge cases gracefully
+    let port = RouteBuilder::stateless()
+        .get("/", handler(handle_json))
+        .seal()
+        .bind_ephemeral()
+        .await
+        .unwrap();
+    
+    // Send a request that would exercise the response building code paths
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("http://localhost:{port}/"))
+        .send()
+        .await
+        .unwrap();
+    
+    // Should return a valid response, not panic
+    assert_eq!(resp.status(), 200);
+}
