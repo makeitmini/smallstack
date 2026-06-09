@@ -240,6 +240,7 @@ async fn cors_expose_headers_appear_in_response() {
     );
 }
 
+#[cfg(debug_assertions)]
 #[test]
 #[should_panic(expected = "CORS misconfiguration")]
 fn wildcard_origin_with_credentials_panics_in_debug() {
@@ -262,6 +263,40 @@ fn wildcard_origin_without_credentials_is_valid() {
     let _ = CorsConfig::builder()
         .allow_origin("*")
         .build();
+}
+
+#[test]
+fn credentialed_wildcard_config_fails_safe_in_release() {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        CorsConfig::builder()
+            .allow_origin("*")
+            .allow_credentials(true)
+            .build()
+    }));
+
+    // In debug, build() panics — that is the expected fail-stop.
+    #[cfg(debug_assertions)]
+    {
+        assert!(result.is_err(), "should panic in debug");
+        return;
+    }
+
+    // In release, build() warns but forces credentials off so the
+    // config does NOT leak credentialed access to arbitrary origins.
+    #[cfg(not(debug_assertions))]
+    {
+        let config = result.unwrap();
+        let resp = config.preflight_response(Some("https://evil.com"), None);
+        assert!(
+            resp.headers().get("access-control-allow-credentials").is_none(),
+            "must not emit credentials header in release"
+        );
+        assert_eq!(
+            resp.headers().get("access-control-allow-origin").unwrap(),
+            "*",
+            "must return wildcard, not reflected origin"
+        );
+    }
 }
 
 #[tokio::test]
