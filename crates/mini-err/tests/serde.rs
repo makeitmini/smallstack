@@ -117,3 +117,35 @@ fn deserialize_with_arbitrary_scope_preserves_string() {
     let e: Error = serde_json::from_str(json).unwrap();
     assert_eq!(e.scope(), "my-custom-scope");
 }
+
+#[test]
+fn scope_interner_caps_at_max_scopes() {
+    use mini_err::test_support::{interned_len, MAX_SCOPES};
+
+    // Fill the pool to MAX_SCOPES.  Other tests may insert concurrently, so
+    // we cannot assert per-insertion success — the pool may fill from any
+    // thread.  Stop as soon as the cap is reached.
+    for i in 0..MAX_SCOPES {
+        let json = format!(
+            r#"{{"scope":"cap_test_fill_{i}","kind":"bad","message":"x","code":400}}"#,
+        );
+        let _e: Error = serde_json::from_str(&json).unwrap();
+        if interned_len() >= MAX_SCOPES {
+            break;
+        }
+    }
+    assert_eq!(interned_len(), MAX_SCOPES);
+
+    // A novel scope beyond the cap returns the overflow sentinel.
+    let json = r#"{"scope":"novel_scope_beyond_cap","kind":"bad","message":"x","code":400}"#;
+    let e: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(e.scope(), "overflow");
+
+    // Pool still capped.
+    assert_eq!(interned_len(), MAX_SCOPES);
+
+    // Previously interned scopes still resolve.
+    let json = r#"{"scope":"cap_test_fill_0","kind":"bad","message":"x","code":400}"#;
+    let e: Error = serde_json::from_str(&json).unwrap();
+    assert_eq!(e.scope(), "cap_test_fill_0");
+}

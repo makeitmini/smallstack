@@ -7,13 +7,16 @@ use std::sync::{Mutex, OnceLock};
 // Serialized form:
 // { "scope": "parse", "kind": "bad", "message": "missing field 'name'", "code": 400 }
 
+pub const MAX_SCOPES: usize = 1024;
+
+static POOL: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+
 /// Global interner for deserialized scope strings.
 ///
 /// Each unique scope string is leaked at most once and reused thereafter,
 /// bounding the per-process leak to the number of distinct scope values
 /// ever deserialized (not per-request).
 fn intern_scope(s: &str) -> &'static str {
-    static POOL: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
     let mut pool = POOL
         .get_or_init(|| Mutex::new(Vec::new()))
         .lock()
@@ -21,9 +24,25 @@ fn intern_scope(s: &str) -> &'static str {
     if let Some(&existing) = pool.iter().find(|&&e| e == s) {
         return existing;
     }
+    if pool.len() >= MAX_SCOPES {
+        return "overflow";
+    }
     let leaked: &'static str = Box::leak(s.to_owned().into_boxed_str());
     pool.push(leaked);
     leaked
+}
+
+pub fn interned_len() -> usize {
+    if let Some(mtx) = POOL.get() {
+        mtx.lock().expect("scope interner lock").len()
+    } else {
+        0
+    }
+}
+
+#[doc(hidden)]
+pub mod test_support {
+    pub use super::{interned_len, MAX_SCOPES};
 }
 
 impl Serialize for Error {
