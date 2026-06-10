@@ -106,8 +106,9 @@ where
 }
 
 pub(crate) fn sse_frame(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    for line in s.lines() {
+    let normalised = s.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out = String::with_capacity(normalised.len() + 8);
+    for line in normalised.split('\n') {
         out.push_str("data: ");
         out.push_str(line);
         out.push('\n');
@@ -144,6 +145,23 @@ mod tests {
     fn sse_frame_prefixes_each_line_with_data() {
         let result = sse_frame("line1\nevent: pwn");
         assert_eq!(result, "data: line1\ndata: event: pwn\n\n");
+    }
+
+    #[test]
+    fn lone_cr_cannot_inject_event_field() {
+        let payload = "data\revent: injected";
+        let frame = sse_frame(payload);
+        // A bare \r must be normalised; an SSE client would interpret
+        // it as a line ending and see "event: injected" as a field.
+        assert!(!frame.contains('\r'), "SSE frame contains bare carriage return: {frame:?}");
+        for line in frame.split('\n') {
+            if !line.is_empty() {
+                assert!(
+                    line.starts_with("data: "),
+                    "unexpected line in SSE frame: {line:?}"
+                );
+            }
+        }
     }
 }
 
