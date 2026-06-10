@@ -97,14 +97,7 @@ impl From<std::string::FromUtf8Error> for Error {
 /// This format is stable. Downstream code may rely on it for parsing.
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kind = match self {
-            Error::Io { .. }  => "io",
-            Error::Net { .. } => "net",
-            Error::Cfg { .. } => "cfg",
-            Error::Bad { .. } => "bad",
-            Error::Gone { .. } => "gone",
-        };
-        write!(f, "{}:{}: {}", self.scope(), kind, self.message())
+        write!(f, "{}:{}: {}", self.scope(), self.kind(), self.message())
     }
 }
 

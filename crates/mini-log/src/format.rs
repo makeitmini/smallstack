@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use serde_json::{Map, Value};
 
-use crate::{Entry, Level};
+use crate::Entry;
 
 fn unix_ts() -> u64 {
     SystemTime::now()
@@ -13,13 +13,7 @@ fn unix_ts() -> u64 {
 
 impl Entry<'_> {
     pub fn render(&self) -> String {
-        let level = match self.level {
-            Level::Error => "error",
-            Level::Warn  => "warn",
-            Level::Info  => "info",
-            Level::Debug => "debug",
-            Level::Trace => "trace",
-        };
+        let level = self.level.as_str();
 
         let mut out = format!("[{}] {}({}): {}", unix_ts(), level, self.logger.scope, self.msg);
         for i in 0..self.count {
@@ -31,13 +25,7 @@ impl Entry<'_> {
     }
 
     pub fn render_json(&self) -> String {
-        let level = match self.level {
-            Level::Error => "error",
-            Level::Warn  => "warn",
-            Level::Info  => "info",
-            Level::Debug => "debug",
-            Level::Trace => "trace",
-        };
+        let level = self.level.as_str();
 
         let mut map = Map::new();
         map.insert("level".into(), Value::String(level.into()));

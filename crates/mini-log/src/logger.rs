@@ -12,6 +12,18 @@ pub enum Level {
     Trace,
 }
 
+impl Level {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Level::Error => "error",
+            Level::Warn  => "warn",
+            Level::Info  => "info",
+            Level::Debug => "debug",
+            Level::Trace => "trace",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Conventional,
@@ -115,5 +127,19 @@ impl Logger {
 
     pub fn trace(&self, msg: &'static str) -> Entry<'_> {
         Entry { logger: self, level: Level::Trace, msg, fields: Default::default(), count: 0, overflow_count: 0 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_as_str() {
+        assert_eq!(Level::Error.as_str(), "error");
+        assert_eq!(Level::Warn.as_str(), "warn");
+        assert_eq!(Level::Info.as_str(), "info");
+        assert_eq!(Level::Debug.as_str(), "debug");
+        assert_eq!(Level::Trace.as_str(), "trace");
     }
 }
