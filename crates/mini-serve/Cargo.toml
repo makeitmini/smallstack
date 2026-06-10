@@ -1,6 +1,6 @@
 [package]
 name = "mini-serve"
-version = "0.4.1"
+version = "0.4.2"
 edition.workspace = true
 
 [features]

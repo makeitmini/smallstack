@@ -25,6 +25,13 @@ mod log_tests {
         )))
     }
 
+    async fn handle_err(
+        _req: hyper::Request<hyper::body::Incoming>,
+        _state: mini_serve::State<()>,
+    ) -> Result<hyper::Response<mini_serve::ResponseBody>, mini_serve::ServeError> {
+        Err(mini_serve::ServeError::new(500, "test error"))
+    }
+
     #[tokio::test]
     async fn logging_middleware_records_method_path_and_status() {
         let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
@@ -63,6 +70,68 @@ mod log_tests {
         assert!(
             out.contains("duration="),
             "expected duration= in output, got: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn logging_middleware_logs_500_at_error_level() {
+        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Arc::new(Mutex::new(
+            Box::new(SharedBuf(buf.clone())) as Box<dyn Write + Send + Sync>,
+        ));
+        let log = mini_log::Logger::new("serve")
+            .with_level(mini_log::Level::Warn)
+            .with_writer(writer);
+        let mw = LoggingMiddleware::new(log);
+
+        let port = RouteBuilder::stateless()
+            .wrap(mw.middleware())
+            .get("/err", handler(handle_err))
+            .seal()
+            .bind_ephemeral()
+            .await
+            .unwrap();
+
+        let resp = reqwest::get(format!("http://localhost:{port}/err"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 500);
+
+        let out = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            out.contains("status=500"),
+            "expected log output for 500 at warn level, got: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn logging_middleware_suppresses_200_at_warn_level() {
+        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Arc::new(Mutex::new(
+            Box::new(SharedBuf(buf.clone())) as Box<dyn Write + Send + Sync>,
+        ));
+        let log = mini_log::Logger::new("serve")
+            .with_level(mini_log::Level::Warn)
+            .with_writer(writer);
+        let mw = LoggingMiddleware::new(log);
+
+        let port = RouteBuilder::stateless()
+            .wrap(mw.middleware())
+            .get("/hello", handler(handle_ok))
+            .seal()
+            .bind_ephemeral()
+            .await
+            .unwrap();
+
+        let resp = reqwest::get(format!("http://localhost:{port}/hello"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let out = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            out.is_empty(),
+            "expected no log output at warn level for 200, got: {out}"
         );
     }
 }
