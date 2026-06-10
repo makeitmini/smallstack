@@ -1,12 +1,13 @@
 [package]
 name = "mini-serve"
-version = "0.3.26"
+version = "0.4.0"
 edition.workspace = true
 
 [features]
 default = []
 err = ["dep:mini-err"]
 log = ["dep:mini-log"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
 
 [dependencies]
 hyper = "1"
@@ -18,10 +19,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_qs = "0.13"
 futures-core = { version = "0.3", default-features = false, features = ["std"] }
+tokio-rustls = { version = "0.26", optional = true }
+rustls = { version = "0.23", optional = true }
+rustls-pemfile = { version = "2", optional = true }
 mini-err = { path = "../mini-err", version = "0.3", optional = true }
 mini-log = { path = "../mini-log", version = "0.3", optional = true }
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rcgen = "0.13"
 mini-err = { path = "../mini-err", version = "0.3" }
 mini-log = { path = "../mini-log", version = "0.3" }

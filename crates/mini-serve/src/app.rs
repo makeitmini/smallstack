@@ -42,8 +42,8 @@ pub struct App<S> {
     router:              Arc<Router<S>>,
     cors_config:         Option<CorsConfig>,
     max_body_size:       usize,
-    header_read_timeout: Duration,
-    max_connections:     usize,
+    pub(crate) header_read_timeout: Duration,
+    pub(crate) max_connections:     usize,
     error_handler:       ErrorHandler,
 }
 
@@ -306,6 +306,78 @@ impl<S: Clone + Send + Sync + 'static> App<S> {
         });
         Ok(port)
     }
+
+    /// Bind the server to a socket address with TLS termination and graceful shutdown.
+    ///
+    /// The server listens for SIGINT (Ctrl-C) and SIGTERM signals. When either signal
+    /// is received, the server initiates graceful shutdown: it stops accepting new
+    /// connections but allows in-flight requests to complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The socket address to bind to
+    /// * `config` - The TLS server configuration
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use mini_serve::RouteBuilder;
+    /// use std::net::SocketAddr;
+    /// use std::sync::Arc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = mini_serve::load_server_config().unwrap();
+    ///     let app = RouteBuilder::stateless()
+    ///         .get("/", mini_serve::handler(|_req, _state| async {
+    ///             Ok(mini_serve::json(
+    ///                 hyper::StatusCode::OK,
+    ///                 &serde_json::json!({"hello": "world"})
+    ///             )?)
+    ///         }))
+    ///         .seal();
+    ///
+    ///     let addr = "127.0.0.1:443".parse().unwrap();
+    ///     app.bind_tls(addr, config).await.expect("server failed");
+    /// }
+    /// ```
+    #[cfg(feature = "tls")]
+    pub async fn bind_tls(self, addr: SocketAddr, config: std::sync::Arc<rustls::ServerConfig>) -> Result<(), ServeError> {
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|_| ServeError::new(500, format!("failed to bind to {addr}")))?;
+        bind_tls_with_shutdown(listener, self, config, signal_shutdown()).await
+    }
+
+    /// Bind to an ephemeral TLS port, returning the assigned port number.
+    ///
+    /// Spawns a background task to serve incoming TLS connections. Useful for tests
+    /// where you need an available port but don't know which one ahead of time.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The TLS server configuration
+    ///
+    /// # Returns
+    ///
+    /// The assigned port number on success.
+    #[cfg(feature = "tls")]
+    pub async fn bind_tls_ephemeral(self, config: std::sync::Arc<rustls::ServerConfig>) -> Result<u16, ServeError> {
+        let addr: SocketAddr = ([0, 0, 0, 0], 0).into();
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|_| ServeError::new(500, "failed to bind to ephemeral port"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|_| ServeError::new(500, "failed to get assigned port"))?
+            .port();
+        let app = Arc::new(self);
+        let acceptor = tokio_rustls::TlsAcceptor::from(config);
+        tokio::spawn(async move {
+            serve_tls_inner(listener, app, acceptor).await;
+        });
+        Ok(port)
+    }
 }
 
 impl App<()> {
@@ -337,6 +409,48 @@ async fn serve_inner<S: Clone + Send + Sync + 'static>(
                 }
             });
             let io = TokioIo::new(stream);
+            let mut builder = http1::Builder::new();
+            builder.timer(TokioTimer::new());
+            builder.header_read_timeout(header_read_timeout);
+            let conn = builder.serve_connection(io, svc);
+            let _ = conn.await;
+        });
+    }
+}
+
+#[cfg(feature = "tls")]
+async fn serve_tls_inner<S: Clone + Send + Sync + 'static>(
+    listener: TcpListener,
+    app: Arc<App<S>>,
+    acceptor: tokio_rustls::TlsAcceptor,
+) {
+    let header_read_timeout = app.header_read_timeout;
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(app.max_connections));
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let sem = semaphore.clone();
+        let permit = match sem.acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let app = app.clone();
+        let acceptor = acceptor.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let tls_stream = match acceptor.accept(stream).await {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let svc = service_fn(move |req: Request<Incoming>| {
+                let app = app.clone();
+                async move {
+                    Ok::<_, hyper::Error>(app.route(req).await)
+                }
+            });
+            let io = TokioIo::new(tls_stream);
             let mut builder = http1::Builder::new();
             builder.timer(TokioTimer::new());
             builder.header_read_timeout(header_read_timeout);
@@ -391,6 +505,71 @@ async fn serve_with_shutdown<S: Clone + Send + Sync + 'static, F>(
                         }
                     });
                     let io = TokioIo::new(stream);
+                    let mut builder = http1::Builder::new();
+                    builder.timer(TokioTimer::new());
+                    builder.header_read_timeout(header_read_timeout);
+                    let conn = builder.serve_connection(io, svc);
+                    let _ = conn.await;
+                });
+            }
+            _ = &mut shutdown_pin, if !shutdown_initiated => {
+                shutdown_initiated = true;
+            }
+            Some(_) = join_set.join_next(), if shutdown_initiated => {
+                // One task completed, continue draining.
+            }
+            else => {
+                // All tasks drained, shutdown complete.
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "tls")]
+async fn serve_tls_with_shutdown<S: Clone + Send + Sync + 'static, F>(
+    listener: TcpListener,
+    app: Arc<App<S>>,
+    acceptor: tokio_rustls::TlsAcceptor,
+    shutdown: F,
+) where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let header_read_timeout = app.header_read_timeout;
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(app.max_connections));
+    let mut join_set: JoinSet<()> = JoinSet::new();
+
+    let mut shutdown_pin = std::pin::pin!(shutdown);
+    let mut shutdown_initiated = false;
+
+    loop {
+        tokio::select! {
+            result = listener.accept(), if !shutdown_initiated => {
+                let (stream, _) = match result {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let sem = semaphore.clone();
+                let permit = match sem.acquire_owned().await {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                let app = app.clone();
+                let acceptor = acceptor.clone();
+                let join_set_ref = &mut join_set;
+                join_set_ref.spawn(async move {
+                    let _permit = permit;
+                    let tls_stream = match acceptor.accept(stream).await {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    };
+                    let svc = service_fn(move |req: Request<Incoming>| {
+                        let app = app.clone();
+                        async move {
+                            Ok::<_, hyper::Error>(app.route(req).await)
+                        }
+                    });
+                    let io = TokioIo::new(tls_stream);
                     let mut builder = http1::Builder::new();
                     builder.timer(TokioTimer::new());
                     builder.header_read_timeout(header_read_timeout);
@@ -716,4 +895,50 @@ impl<S: Clone + Send + Sync + 'static> GroupBuilder<S> {
         self.routes.push((Method::DELETE, path.to_string(), handler));
         self
     }
+}
+
+/// Bind a TLS listener and app with graceful shutdown support using a custom shutdown signal.
+///
+/// Terminates TLS on each accepted connection before passing to the HTTP handler.
+/// Respects the same timeout and connection limits as the plain TCP path.
+///
+/// # Arguments
+///
+/// * `listener` - The bound TCP listener to accept connections on
+/// * `app` - The application instance to serve
+/// * `config` - The TLS server configuration
+/// * `shutdown` - A future that resolves to trigger shutdown
+#[cfg(feature = "tls")]
+pub async fn bind_tls_with_shutdown<S: Clone + Send + Sync + 'static, F>(
+    listener: TcpListener,
+    app: App<S>,
+    config: std::sync::Arc<rustls::ServerConfig>,
+    shutdown: F,
+) -> Result<(), ServeError>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let app = Arc::new(app);
+    let acceptor = tokio_rustls::TlsAcceptor::from(config);
+    serve_tls_with_shutdown(listener, app, acceptor, shutdown).await;
+    Ok(())
+}
+
+/// Bind a TLS listener and app with graceful shutdown triggered by OS signals (SIGTERM/SIGINT).
+///
+/// A convenience wrapper around [`bind_tls_with_shutdown`] that automatically listens
+/// for SIGTERM and SIGINT signals.
+///
+/// # Arguments
+///
+/// * `listener` - The bound TCP listener to accept connections on
+/// * `app` - The application instance to serve
+/// * `config` - The TLS server configuration
+#[cfg(feature = "tls")]
+pub async fn bind_tls_with_os_shutdown<S: Clone + Send + Sync + 'static>(
+    listener: TcpListener,
+    app: App<S>,
+    config: std::sync::Arc<rustls::ServerConfig>,
+) -> Result<(), ServeError> {
+    bind_tls_with_shutdown(listener, app, config, signal_shutdown()).await
 }
