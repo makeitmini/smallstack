@@ -502,6 +502,45 @@ where
     Ok(())
 }
 
+/// Bind a listener and app with graceful shutdown triggered by OS signals (SIGTERM/SIGINT).
+///
+/// This is a convenience wrapper around [`bind_with_shutdown`] that automatically listens
+/// for SIGTERM and SIGINT signals. When either signal is received, the server:
+///
+/// 1. Stops accepting new connections immediately
+/// 2. Allows all in-flight requests to complete their processing
+/// 3. Returns after all existing connections have closed
+///
+/// # Example
+///
+/// ```no_run
+/// use mini_serve::RouteBuilder;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let app = RouteBuilder::stateless()
+///         .get("/", mini_serve::handler(|_req, _state| async {
+///             Ok(mini_serve::json(
+///                 hyper::StatusCode::OK,
+///                 &serde_json::json!({"ok": true})
+///             )?)
+///         }))
+///         .seal();
+///
+///     let addr: std::net::SocketAddr = "127.0.0.1:3000".parse().unwrap();
+///     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+///
+///     // Server runs until it receives SIGTERM or SIGINT
+///     mini_serve::bind_with_os_shutdown(listener, app).await.expect("server failed");
+/// }
+/// ```
+pub async fn bind_with_os_shutdown<S: Clone + Send + Sync + 'static>(
+    listener: TcpListener,
+    app: App<S>,
+) -> Result<(), ServeError> {
+    bind_with_shutdown(listener, app, signal_shutdown()).await
+}
+
 #[must_use = "RouteBuilder does nothing until .seal() is called"]
 pub struct RouteBuilder<S> {
     state:               Arc<S>,

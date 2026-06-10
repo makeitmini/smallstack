@@ -3,6 +3,7 @@ use hyper::body::Incoming;
 use mini_serve::{handler, ResponseBody, RouteBuilder, ServeError, State};
 use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::net::TcpListener;
 use tokio::time::sleep;
 
 async fn quick_handler(
@@ -35,10 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Try: curl http://localhost:3000/slow");
     println!("Press Ctrl-C to shut down gracefully");
 
-    // The bind() method automatically handles SIGINT and SIGTERM signals
-    // and performs graceful shutdown: stops accepting new connections
-    // but allows in-flight requests to complete.
-    app.bind(addr).await?;
+    // bind_with_os_shutdown handles SIGINT and SIGTERM signals and performs
+    // graceful shutdown: stops accepting new connections but allows in-flight
+    // requests to complete. Use bind_with_shutdown if you need custom signal logic.
+    let listener = TcpListener::bind(addr).await?;
+    mini_serve::bind_with_os_shutdown(listener, app).await?;
 
     println!("Server shut down gracefully");
 

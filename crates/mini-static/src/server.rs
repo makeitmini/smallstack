@@ -17,6 +17,7 @@ use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full, StreamBody};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::net::TcpListener;
+use tokio::task::JoinSet;
 
 use crate::error::StaticError;
 
@@ -201,6 +202,37 @@ impl Server {
         Ok(port)
     }
 
+    pub async fn run_with_shutdown<F>(mut self, listener: TcpListener, shutdown: F) -> Result<(), StaticError>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let max_connections = self.max_connections;
+        let dir = self.dir.canonicalize().map_err(StaticError::Io)?;
+        let dir = Arc::new(dir);
+        #[cfg(debug_assertions)]
+        self.setup_livereload(&dir);
+        let handlers = Arc::new(self.handlers);
+        let transform = self.transform;
+        #[cfg(feature = "log")]
+        let log = self.logger.map(|l| {
+            Arc::new(move |method: &str, path: &str, status: u16| {
+                l.info("serve")
+                    .field("method", method)
+                    .field("path", path)
+                    .field("status", status)
+                    .emit();
+            }) as LogFn
+        });
+        #[cfg(not(feature = "log"))]
+        let log = None::<LogFn>;
+        serve_with_shutdown(listener, dir, handlers, transform, log, max_connections, shutdown).await;
+        Ok(())
+    }
+
+    pub async fn run_with_os_shutdown(self, listener: TcpListener) -> Result<(), StaticError> {
+        self.run_with_shutdown(listener, signal_shutdown()).await
+    }
+
     #[cfg(debug_assertions)]
     fn setup_livereload(&mut self, dir: &Arc<PathBuf>) {
         let broadcaster = live::Broadcaster::new();
@@ -253,6 +285,90 @@ async fn serve_inner(
                 .serve_connection(io, svc)
                 .await;
         });
+    }
+}
+
+async fn signal_shutdown() {
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .expect("failed to set up SIGINT handler");
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("failed to set up SIGTERM handler");
+
+    tokio::select! {
+        _ = sigint.recv() => {},
+        _ = sigterm.recv() => {},
+    }
+}
+
+async fn serve_with_shutdown<F>(
+    listener: TcpListener,
+    dir: Arc<PathBuf>,
+    handlers: Arc<Vec<Arc<dyn Handler>>>,
+    transform: Option<Arc<dyn Transform>>,
+    log: Option<LogFn>,
+    max_connections: usize,
+    shutdown: F,
+) where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(max_connections));
+    let mut join_set: JoinSet<()> = JoinSet::new();
+
+    let mut shutdown_pin = std::pin::pin!(shutdown);
+    let mut shutdown_initiated = false;
+
+    loop {
+        tokio::select! {
+            result = listener.accept(), if !shutdown_initiated => {
+                let (stream, _) = match result {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let sem = semaphore.clone();
+                let permit = match sem.acquire_owned().await {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                let dir = dir.clone();
+                let handlers = handlers.clone();
+                let transform = transform.clone();
+                let log = log.clone();
+                let join_set_ref = &mut join_set;
+                join_set_ref.spawn(async move {
+                    let _permit = permit;
+                    let svc = service_fn(move |req: Request<Incoming>| {
+                        let dir = dir.clone();
+                        let handlers = handlers.clone();
+                        let transform = transform.clone();
+                        let log = log.clone();
+                        async move {
+                            let method = req.method().to_string();
+                            let path = req.uri().path().to_string();
+                            let resp = handle(req, &dir, &handlers, &transform).await;
+                            let status = resp.status().as_u16();
+                            if let Some(ref log) = log {
+                                log(&method, &path, status);
+                            }
+                            Ok::<_, Infallible>(resp)
+                        }
+                    });
+                    let io = TokioIo::new(stream);
+                    let _ = AutoBuilder::new(TokioExecutor::new())
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+            _ = &mut shutdown_pin, if !shutdown_initiated => {
+                shutdown_initiated = true;
+            }
+            Some(_) = join_set.join_next(), if shutdown_initiated => {
+                // One task completed, continue draining.
+            }
+            else => {
+                // All tasks drained, shutdown complete.
+                break;
+            }
+        }
     }
 }
 
