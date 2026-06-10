@@ -4,9 +4,11 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::{Duration, SystemTime};
 
 use futures_core::Stream;
 use hyper::body::{Bytes, Frame, Incoming};
+use hyper::header::HeaderMap;
 use hyper::{Request, Response, StatusCode};
 use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
@@ -372,6 +374,26 @@ async fn serve_with_shutdown<F>(
     }
 }
 
+fn weak_eq(a: &str, b: &str) -> bool {
+    fn strip(s: &str) -> &str { s.strip_prefix("W/").unwrap_or(s) }
+    strip(a.trim()) == strip(b.trim())
+}
+
+fn is_not_modified(headers: &HeaderMap, etag: &str, mtime: SystemTime) -> bool {
+    if let Some(inm) = headers.get("if-none-match") {
+        let v = inm.to_str().unwrap_or("");
+        return v == "*" || v.split(',').any(|c| weak_eq(c, etag));
+    }
+    if let Some(ims) = headers.get("if-modified-since") {
+        if let Ok(s) = ims.to_str() {
+            if let Ok(t) = httpdate::parse_http_date(s) {
+                return mtime <= t;
+            }
+        }
+    }
+    false
+}
+
 async fn handle(
     req: Request<Incoming>,
     dir: &Path,
@@ -394,6 +416,30 @@ async fn handle(
     match resolve(dir, &path) {
         Ok(file_path) => {
             let mime = mime_type(&file_path);
+            let mut cache_headers: Option<(String, String)> = None;
+
+            if let Ok(meta) = tokio::fs::metadata(&file_path).await {
+                let mtime_raw = meta.modified().unwrap_or(SystemTime::now());
+                let mtime_secs = mtime_raw.duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                // Reconstruct mtime from whole seconds to match httpdate precision
+                let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_secs);
+                let etag = format!(r#"W/"{}-{}""#, mtime_secs, meta.len());
+                let last_modified = httpdate::fmt_http_date(mtime);
+
+                if is_not_modified(req.headers(), &etag, mtime) {
+                    return Response::builder()
+                        .status(StatusCode::NOT_MODIFIED)
+                        .header("etag", &etag)
+                        .header("cache-control", "no-cache")
+                        .body(into_body(Full::new(Bytes::new())))
+                        .unwrap();
+                }
+
+                cache_headers = Some((etag, last_modified));
+            }
+
             // Buffered path: required when a transform is registered (operates
             // on Vec<u8>) or when livereload injection needs full HTML in debug
             // builds. Otherwise stream for constant memory per connection.
@@ -405,7 +451,7 @@ async fn handle(
                         if let Some(ref t) = transform {
                             bytes = t.apply(mime, bytes);
                         }
-                        file_response(bytes, mime)
+                        file_response(bytes, mime, cache_headers.as_ref().map(|(e, l)| (e.as_str(), l.as_str())))
                     }
                     Err(_) => error_response(
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -417,9 +463,16 @@ async fn handle(
                     Ok(file) => {
                         let stream = ReadStream { reader: file, buf: Vec::with_capacity(FILE_CHUNK_SIZE) };
                         let body = into_body(StreamBody::new(stream));
-                        Response::builder()
+                        let mut resp = Response::builder()
                             .status(StatusCode::OK)
-                            .header("content-type", mime)
+                            .header("content-type", mime);
+                        if let Some((etag, last_modified)) = &cache_headers {
+                            resp = resp
+                                .header("etag", etag)
+                                .header("last-modified", last_modified)
+                                .header("cache-control", "no-cache");
+                        }
+                        resp
                             .body(body)
                             .unwrap_or_else(|_| {
                                 // Fallback to a static 500 response if header construction fails
@@ -481,10 +534,17 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
 }
 
 #[cfg(not(debug_assertions))]
-fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
-    Response::builder()
+fn file_response(bytes: Vec<u8>, mime: &str, cache: Option<(&str, &str)>) -> Response<ResponseBody> {
+    let mut resp = Response::builder()
         .status(StatusCode::OK)
-        .header("content-type", mime)
+        .header("content-type", mime);
+    if let Some((etag, last_modified)) = cache {
+        resp = resp
+            .header("etag", etag)
+            .header("last-modified", last_modified)
+            .header("cache-control", "no-cache");
+    }
+    resp
         .body(into_body(Full::new(Bytes::from(bytes))))
         .unwrap_or_else(|_| {
             // Fallback to a static 500 response if header construction fails
@@ -506,6 +566,6 @@ fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
 }
 
 #[cfg(debug_assertions)]
-fn file_response(bytes: Vec<u8>, mime: &str) -> Response<ResponseBody> {
+fn file_response(bytes: Vec<u8>, mime: &str, _cache: Option<(&str, &str)>) -> Response<ResponseBody> {
     crate::live::make_html_response(bytes, mime)
 }

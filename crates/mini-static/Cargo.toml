@@ -1,6 +1,6 @@
 [package]
 name = "mini-static"
-version = "0.3.13"
+version = "0.3.14"
 edition.workspace = true
 
 [features]
@@ -17,6 +17,7 @@ tokio = { version = "1", features = ["net", "rt", "macros", "fs", "sync", "signa
 futures-core = { version = "0.3", default-features = false, features = ["std"] }
 mime_guess = "2"
 serde_json = "1"
+httpdate = "1"
 mini-err = { path = "../mini-err", version = "0.3", optional = true }
 mini-log = { path = "../mini-log", version = "0.3", optional = true }
 
