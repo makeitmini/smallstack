@@ -1,11 +1,44 @@
 use hyper::Response;
 use hyper::body::Bytes;
-use serde::Deserialize;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use mini_serve::{handler, path_params, RouteBuilder, ServeError};
+use std::fmt;
 
-#[derive(Deserialize)]
 struct UserPath {
     id: u32,
+}
+
+struct UserPathVisitor;
+
+impl<'de> Visitor<'de> for UserPathVisitor {
+    type Value = UserPath;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON object with an id field")
+    }
+
+    fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<UserPath, V::Error> {
+        let mut id: Option<u32> = None;
+
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "id" => id = Some(map.next_value()?),
+                _ => {
+                    let _: de::IgnoredAny = map.next_value()?;
+                }
+            }
+        }
+
+        Ok(UserPath {
+            id: id.ok_or_else(|| de::Error::missing_field("id"))?,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for UserPath {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_struct("UserPath", &["id"], UserPathVisitor)
+    }
 }
 
 async fn handle_user(

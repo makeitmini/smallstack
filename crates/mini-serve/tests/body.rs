@@ -1,12 +1,48 @@
 use hyper::Response;
 use hyper::body::Bytes;
-use serde::Deserialize;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use mini_serve::{handler, json_body, RouteBuilder, ServeError};
+use std::fmt;
 
-#[derive(Deserialize)]
 struct CreateUser {
     name:  String,
     email: String,
+}
+
+struct CreateUserVisitor;
+
+impl<'de> Visitor<'de> for CreateUserVisitor {
+    type Value = CreateUser;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON object with name and email fields")
+    }
+
+    fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<CreateUser, V::Error> {
+        let mut name: Option<String> = None;
+        let mut email: Option<String> = None;
+
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "name" => name = Some(map.next_value()?),
+                "email" => email = Some(map.next_value()?),
+                _ => {
+                    let _: de::IgnoredAny = map.next_value()?;
+                }
+            }
+        }
+
+        Ok(CreateUser {
+            name: name.ok_or_else(|| de::Error::missing_field("name"))?,
+            email: email.ok_or_else(|| de::Error::missing_field("email"))?,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for CreateUser {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_struct("CreateUser", &["name", "email"], CreateUserVisitor)
+    }
 }
 
 async fn handle_create(

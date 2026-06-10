@@ -42,13 +42,44 @@ pub fn path_params<T: DeserializeOwned, B>(req: &Request<B>) -> Result<T, ServeE
 mod tests {
     use super::*;
     use crate::router::PathParams;
-    use serde::Deserialize;
+    use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
     use std::collections::HashMap;
+    use std::fmt;
 
-    #[derive(Deserialize)]
     struct NoInject {
-        #[serde(rename = "*")]
         value: String,
+    }
+
+    struct NoInjectVisitor;
+
+    impl<'de> Visitor<'de> for NoInjectVisitor {
+        type Value = NoInject;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a JSON object with a * field")
+        }
+
+        fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<NoInject, V::Error> {
+            let mut value: Option<String> = None;
+
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "*" {
+                    value = Some(map.next_value()?);
+                } else {
+                    let _: de::IgnoredAny = map.next_value()?;
+                }
+            }
+
+            Ok(NoInject {
+                value: value.ok_or_else(|| de::Error::missing_field("*"))?,
+            })
+        }
+    }
+
+    impl<'de> Deserialize<'de> for NoInject {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            deserializer.deserialize_struct("NoInject", &["*"], NoInjectVisitor)
+        }
     }
 
     #[test]
