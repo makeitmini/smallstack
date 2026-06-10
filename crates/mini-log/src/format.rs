@@ -4,10 +4,10 @@ use serde_json::{Map, Value};
 
 use crate::Entry;
 
-fn unix_ts() -> u64 {
+fn unix_ts_millis() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
 
@@ -15,7 +15,10 @@ impl Entry<'_> {
     pub fn render(&self) -> String {
         let level = self.level.as_str();
 
-        let mut out = format!("[{}] {}({}): {}", unix_ts(), level, self.logger.scope, self.msg);
+        let ts = unix_ts_millis();
+        let secs = ts / 1000;
+        let sub_sec = ts % 1000;
+        let mut out = format!("[{secs}.{sub_sec:03}] {level}({}): {}", self.logger.scope, self.msg);
         for i in 0..self.count {
             if let Some((key, ref val)) = self.fields[i] {
                 out.push_str(&format!(" {key}={val}"));
@@ -38,7 +41,7 @@ impl Entry<'_> {
             }
         }
 
-        map.insert("ts".into(), Value::Number(unix_ts().into()));
+        map.insert("ts".into(), Value::Number(unix_ts_millis().into()));
 
         serde_json::to_string(&Value::Object(map)).unwrap_or_default()
     }

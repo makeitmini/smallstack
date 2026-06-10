@@ -59,6 +59,31 @@ fn json_duration_appears_as_field() {
 }
 
 #[test]
+fn json_timestamp_has_sub_second_precision() {
+    let (log, buf) = json_logger();
+    log.info("first").emit();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    log.info("second").emit();
+    let out = output(&buf);
+    let lines: Vec<&str> = out.trim().lines().collect();
+    assert_eq!(lines.len(), 2);
+
+    let ts1: u64 = serde_json::from_str::<serde_json::Value>(lines[0])
+        .unwrap()["ts"].as_u64().unwrap();
+    let ts2: u64 = serde_json::from_str::<serde_json::Value>(lines[1])
+        .unwrap()["ts"].as_u64().unwrap();
+
+    assert!(
+        ts1 > 1_700_000_000_000,
+        "ts {ts1} looks like seconds (not millis)"
+    );
+    assert!(
+        ts2 > ts1,
+        "expected ts2 ({ts2}) > ts1 ({ts1}) — sub-second precision missing"
+    );
+}
+
+#[test]
 fn json_format_round_trips_through_serde_json() {
     let (log, buf) = json_logger();
     log.info("request_received")
