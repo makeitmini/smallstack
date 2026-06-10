@@ -41,14 +41,34 @@ fn round_trip_io_variant() {
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["scope"], "fs");
     assert_eq!(value["kind"], "io");
+    assert_eq!(value["io_kind"], "NotFound");
     assert!(value["message"].as_str().unwrap().contains("config.toml"));
     assert_eq!(value["code"], 500);
 
     let deserialized: Error = serde_json::from_str(&json).unwrap();
-    assert_eq!(deserialized.scope(), "fs");
-    assert_eq!(deserialized.kind(), "io");
-    assert_eq!(deserialized.code(), 500);
+    assert_eq!(deserialized, err);
     assert!(StdError::source(&deserialized).is_some());
+}
+
+#[test]
+fn round_trip_io_preserves_error_kind() {
+    for kind in [
+        std::io::ErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::ConnectionRefused,
+        std::io::ErrorKind::TimedOut,
+        std::io::ErrorKind::Interrupted,
+        std::io::ErrorKind::UnexpectedEof,
+    ] {
+        let original = Error::Io {
+            cause: std::io::Error::new(kind, "test"),
+            scope: "fs",
+            msg: None,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: Error = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original, "round-trip failed for kind {kind:?}");
+    }
 }
 
 #[test]
@@ -62,10 +82,7 @@ fn round_trip_net_variant() {
     assert_eq!(value["code"], 502);
 
     let deserialized: Error = serde_json::from_str(&json).unwrap();
-    assert_eq!(deserialized.scope(), "upstream");
-    assert_eq!(deserialized.kind(), "net");
-    assert_eq!(deserialized.message(), "connection refused");
-    assert_eq!(deserialized.code(), 502);
+    assert_eq!(deserialized, err);
 }
 
 #[test]
@@ -79,10 +96,7 @@ fn round_trip_cfg_variant() {
     assert_eq!(value["code"], 500);
 
     let deserialized: Error = serde_json::from_str(&json).unwrap();
-    assert_eq!(deserialized.scope(), "startup");
-    assert_eq!(deserialized.kind(), "cfg");
-    assert_eq!(deserialized.message(), "missing key");
-    assert_eq!(deserialized.code(), 500);
+    assert_eq!(deserialized, err);
 }
 
 #[test]
@@ -96,10 +110,7 @@ fn round_trip_gone_variant() {
     assert_eq!(value["code"], 404);
 
     let deserialized: Error = serde_json::from_str(&json).unwrap();
-    assert_eq!(deserialized.scope(), "db");
-    assert_eq!(deserialized.kind(), "gone");
-    assert_eq!(deserialized.message(), "record deleted");
-    assert_eq!(deserialized.code(), 404);
+    assert_eq!(deserialized, err);
 }
 
 #[test]
