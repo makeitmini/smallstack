@@ -17,7 +17,7 @@ use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use http_body::Body;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full, StreamBody};
-use tokio::io::{AsyncRead, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 
@@ -374,6 +374,60 @@ async fn serve_with_shutdown<F>(
     }
 }
 
+enum RangeOutcome {
+    None,
+    Satisfiable(u64, u64), // inclusive start, inclusive end
+    Unsatisfiable,
+}
+
+fn parse_range_spec(spec: &str, file_len: u64) -> Option<(u64, u64)> {
+    let (s, e) = spec.split_once('-')?;
+    match (s.trim(), e.trim()) {
+        ("", "") => None,
+        ("", n) => {
+            let n: u64 = n.parse().ok()?;
+            if n == 0 || file_len == 0 {
+                return None;
+            }
+            Some((file_len.saturating_sub(n), file_len - 1))
+        }
+        (s, "") => {
+            let start: u64 = s.parse().ok()?;
+            if start >= file_len {
+                return None;
+            }
+            Some((start, file_len - 1))
+        }
+        (s, e) => {
+            let start: u64 = s.parse().ok()?;
+            let end: u64 = e.parse().ok()?;
+            if start > end || start >= file_len {
+                return None;
+            }
+            Some((start, end.min(file_len - 1)))
+        }
+    }
+}
+
+fn parse_range(headers: &HeaderMap, file_len: u64) -> RangeOutcome {
+    let Some(val) = headers.get("range") else {
+        return RangeOutcome::None;
+    };
+    let Ok(s) = val.to_str() else {
+        return RangeOutcome::None;
+    };
+    let Some(spec) = s.strip_prefix("bytes=") else {
+        return RangeOutcome::None;
+    };
+    if spec.contains(',') {
+        return RangeOutcome::Unsatisfiable;
+    }
+    match parse_range_spec(spec, file_len) {
+        Some((start, end)) => RangeOutcome::Satisfiable(start, end),
+        None => RangeOutcome::Unsatisfiable,
+    }
+}
+
 fn weak_eq(a: &str, b: &str) -> bool {
     fn strip(s: &str) -> &str { s.strip_prefix("W/").unwrap_or(s) }
     strip(a.trim()) == strip(b.trim())
@@ -438,11 +492,59 @@ async fn handle(
                 }
 
                 cache_headers = Some((etag, last_modified));
+
+                let file_len = meta.len();
+                let needs_buffer = transform.is_some()
+                    || (cfg!(debug_assertions) && mime.starts_with("text/html"));
+
+                match parse_range(req.headers(), file_len) {
+                    RangeOutcome::Unsatisfiable => {
+                        return Response::builder()
+                            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                            .header("content-range", format!("bytes */{file_len}"))
+                            .body(into_body(Full::new(Bytes::new())))
+                            .unwrap();
+                    }
+                    RangeOutcome::Satisfiable(start, end) if !needs_buffer => {
+                        match tokio::fs::File::open(&file_path).await {
+                            Ok(mut file) => {
+                                if let Err(_) = file.seek(std::io::SeekFrom::Start(start)).await {
+                                    return error_response(
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        "seek failed",
+                                    );
+                                }
+                                let length = end - start + 1;
+                                let limited = file.take(length);
+                                let stream =
+                                    ReadStream { reader: limited, buf: Vec::with_capacity(FILE_CHUNK_SIZE) };
+                                let body = into_body(StreamBody::new(stream));
+                                let mut resp = Response::builder()
+                                    .status(StatusCode::PARTIAL_CONTENT)
+                                    .header("content-type", mime)
+                                    .header("content-range", format!("bytes {start}-{end}/{file_len}"))
+                                    .header("content-length", length.to_string())
+                                    .header("accept-ranges", "bytes");
+                                if let Some((etag, lm)) = &cache_headers {
+                                    resp = resp
+                                        .header("etag", etag)
+                                        .header("last-modified", lm)
+                                        .header("cache-control", "no-cache");
+                                }
+                                return resp.body(body).unwrap();
+                            }
+                            Err(_) => {
+                                return error_response(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    "failed to read file",
+                                );
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
 
-            // Buffered path: required when a transform is registered (operates
-            // on Vec<u8>) or when livereload injection needs full HTML in debug
-            // builds. Otherwise stream for constant memory per connection.
             let needs_buffer = transform.is_some()
                 || (cfg!(debug_assertions) && mime.starts_with("text/html"));
             if needs_buffer {
@@ -465,7 +567,8 @@ async fn handle(
                         let body = into_body(StreamBody::new(stream));
                         let mut resp = Response::builder()
                             .status(StatusCode::OK)
-                            .header("content-type", mime);
+                            .header("content-type", mime)
+                            .header("accept-ranges", "bytes");
                         if let Some((etag, last_modified)) = &cache_headers {
                             resp = resp
                                 .header("etag", etag)
@@ -537,7 +640,8 @@ fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
 fn file_response(bytes: Vec<u8>, mime: &str, cache: Option<(&str, &str)>) -> Response<ResponseBody> {
     let mut resp = Response::builder()
         .status(StatusCode::OK)
-        .header("content-type", mime);
+        .header("content-type", mime)
+        .header("accept-ranges", "bytes");
     if let Some((etag, last_modified)) = cache {
         resp = resp
             .header("etag", etag)
