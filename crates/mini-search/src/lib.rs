@@ -7,6 +7,8 @@ mod error;
 mod fields;
 mod index;
 mod numkey;
+#[cfg(feature = "persist")]
+mod persist;
 mod query;
 mod score;
 mod tokenizer;

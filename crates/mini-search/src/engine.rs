@@ -9,6 +9,8 @@ use crate::score::score_text;
 use crate::tokenizer::Tokenizer;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "persist")]
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct SearchHit {
@@ -23,12 +25,14 @@ pub struct SearchMetrics {
 
 #[derive(Debug)]
 pub struct Engine {
-    documents: HashMap<String, HashMap<String, Document>>,
-    field_configs: HashMap<String, HashMap<String, FieldConfig>>,
-    inverted: HashMap<String, InvertedIndex>,
-    numeric: HashMap<String, NumericIndex>,
-    exact: HashMap<String, ExactIndex>,
-    tokenizer: Tokenizer,
+    pub(crate) documents: HashMap<String, HashMap<String, Document>>,
+    pub(crate) field_configs: HashMap<String, HashMap<String, FieldConfig>>,
+    pub(crate) inverted: HashMap<String, InvertedIndex>,
+    pub(crate) numeric: HashMap<String, NumericIndex>,
+    pub(crate) exact: HashMap<String, ExactIndex>,
+    pub(crate) tokenizer: Tokenizer,
+    #[cfg(feature = "persist")]
+    pub(crate) storage_dir: Option<PathBuf>,
 }
 
 impl Engine {
@@ -40,6 +44,8 @@ impl Engine {
             numeric: HashMap::new(),
             exact: HashMap::new(),
             tokenizer: Tokenizer::new(),
+            #[cfg(feature = "persist")]
+            storage_dir: None,
         }
     }
 
