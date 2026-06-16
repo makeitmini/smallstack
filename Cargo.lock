@@ -760,6 +760,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mini-unified"
+version = "0.1.0"
+dependencies = [
+ "hyper",
+ "mini-serve",
+ "mini-static",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

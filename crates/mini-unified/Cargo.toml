@@ -1,0 +1,15 @@
+[package]
+name = "mini-unified"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+mini-serve = { path = "../mini-serve" }
+mini-static = { path = "../mini-static" }
+
+[dev-dependencies]
+hyper = "1"
+tempfile = "3"
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
