@@ -4,6 +4,7 @@ use std::time::Instant;
 use mini_err::Error;
 use mini_log::Logger;
 use mini_serve::{handler, json, json_body, path_params, RouteBuilder};
+use mini_unified::StaticRouteBuilderExt;
 
 #[derive(Clone)]
 struct AppState {
@@ -45,6 +46,12 @@ struct CreateItemInput {
 #[derive(serde::Deserialize)]
 struct ItemParams {
     id: u64,
+}
+
+#[derive(serde::Deserialize)]
+struct DivideInput {
+    a: f64,
+    b: f64,
 }
 
 async fn health_check(
@@ -117,6 +124,47 @@ async fn get_item_handler(
     }
 }
 
+async fn divide_handler(
+    req: hyper::Request<hyper::body::Incoming>,
+    state: mini_serve::State<AppState>,
+) -> Result<hyper::Response<mini_serve::ResponseBody>, mini_serve::ServeError> {
+    let input: DivideInput = json_body(req).await?;
+
+    if input.b == 0.0 {
+        let err = Error::bad("division", "cannot divide by zero");
+        state.logger.error("divide").err(&err)
+            .field("a", input.a)
+            .field("b", input.b)
+            .emit();
+        return Err(mini_serve::ServeError::from(err));
+    }
+
+    let result = input.a / input.b;
+    state.logger.info("divide")
+        .field("a", input.a)
+        .field("b", input.b)
+        .field("result", result)
+        .emit();
+
+    json(hyper::StatusCode::OK, &serde_json::json!({ "result": result }))
+}
+
+async fn echo_handler(
+    req: hyper::Request<hyper::body::Incoming>,
+    state: mini_serve::State<AppState>,
+) -> Result<hyper::Response<mini_serve::ResponseBody>, mini_serve::ServeError> {
+    let value: serde_json::Value = json_body(req).await?;
+    let kind = match &value {
+        serde_json::Value::Object(_) => "object",
+        serde_json::Value::Array(_) => "array",
+        _ => "other",
+    };
+    state.logger.info("echo")
+        .field("type", kind)
+        .emit();
+    json(hyper::StatusCode::OK, &value)
+}
+
 fn make_app() -> mini_serve::App<AppState> {
     let logger = Logger::new("demo_test");
     let state = AppState {
@@ -129,6 +177,9 @@ fn make_app() -> mini_serve::App<AppState> {
         .get("/api/items", handler(list_items_handler))
         .post("/api/items", handler(create_item_handler))
         .get("/api/items/:id", handler(get_item_handler))
+        .post("/api/divide", handler(divide_handler))
+        .post("/api/echo", handler(echo_handler))
+        .serve_static("./public")
         .seal()
 }
 
@@ -247,4 +298,98 @@ async fn get_item_returns_404_for_missing_id() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["message"], "item '999' not found");
+}
+
+#[tokio::test]
+async fn divide_returns_quotient() {
+    let port = make_app().bind_ephemeral().await.unwrap();
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/api/divide"))
+        .json(&serde_json::json!({"a": 10.0, "b": 2.0}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!((body["result"].as_f64().unwrap() - 5.0).abs() < 1e-10);
+}
+
+#[tokio::test]
+async fn divide_rejects_division_by_zero() {
+    let port = make_app().bind_ephemeral().await.unwrap();
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/api/divide"))
+        .json(&serde_json::json!({"a": 1.0, "b": 0.0}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["message"], "cannot divide by zero");
+}
+
+#[tokio::test]
+async fn echo_returns_same_json_object() {
+    let port = make_app().bind_ephemeral().await.unwrap();
+    let client = reqwest::Client::new();
+    let payload = serde_json::json!({"hello": "world", "nested": {"key": 42}});
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/api/echo"))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body, payload);
+}
+
+#[tokio::test]
+async fn echo_returns_same_json_array() {
+    let port = make_app().bind_ephemeral().await.unwrap();
+    let client = reqwest::Client::new();
+    let payload = serde_json::json!([1, 2, 3]);
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/api/echo"))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body, payload);
+}
+
+#[tokio::test]
+async fn static_root_serves_index_html() {
+    let port = make_app().bind_ephemeral().await.unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let text = resp.text().await.unwrap();
+    assert!(text.contains("Smallstack Demo"));
+    assert!(text.contains("/api/health"));
+}
+
+#[tokio::test]
+async fn static_wildcard_returns_404_for_missing_file() {
+    let port = make_app().bind_ephemeral().await.unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/nonexistent.html"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
 }

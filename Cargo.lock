@@ -131,12 +131,13 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "demo"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hyper",
  "mini-err",
  "mini-log",
  "mini-serve",
+ "mini-unified",
  "reqwest",
  "serde",
  "serde_json",

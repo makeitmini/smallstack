@@ -7,6 +7,7 @@ use hyper::body::Incoming;
 use mini_err::Error;
 use mini_log::Logger;
 use mini_serve::{handler, json, json_body, path_params, ResponseBody, RouteBuilder, ServeError, State};
+use mini_unified::StaticRouteBuilderExt;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
@@ -60,6 +61,12 @@ struct CreateItemInput {
 #[derive(Deserialize)]
 struct ItemParams {
     id: u64,
+}
+
+#[derive(Deserialize)]
+struct DivideInput {
+    a: f64,
+    b: f64,
 }
 
 async fn health_check(
@@ -134,6 +141,49 @@ async fn get_item(
     }
 }
 
+async fn divide_handler(
+    req: Request<Incoming>,
+    state: State<AppState>,
+) -> Result<Response<ResponseBody>, ServeError> {
+    let input: DivideInput = json_body(req).await?;
+
+    if input.b == 0.0 {
+        let err = Error::bad("division", "cannot divide by zero");
+        state.logger.error("divide").err(&err)
+            .field("a", input.a)
+            .field("b", input.b)
+            .emit();
+        return Err(ServeError::from(err));
+    }
+
+    let result = input.a / input.b;
+    state.logger.info("divide")
+        .field("a", input.a)
+        .field("b", input.b)
+        .field("result", result)
+        .emit();
+
+    json(StatusCode::OK, &serde_json::json!({ "result": result }))
+}
+
+async fn echo_handler(
+    req: Request<Incoming>,
+    state: State<AppState>,
+) -> Result<Response<ResponseBody>, ServeError> {
+    let start = Instant::now();
+    let value: serde_json::Value = json_body(req).await?;
+    let kind = match &value {
+        serde_json::Value::Object(_) => "object",
+        serde_json::Value::Array(_) => "array",
+        _ => "other",
+    };
+    state.logger.info("echo")
+        .field("type", kind)
+        .duration(start)
+        .emit();
+    json(StatusCode::OK, &value)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let logger = Logger::from_env("demo");
@@ -149,6 +199,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get("/api/items", handler(list_items))
         .post("/api/items", handler(create_item))
         .get("/api/items/:id", handler(get_item))
+        .post("/api/divide", handler(divide_handler))
+        .post("/api/echo", handler(echo_handler))
+        .serve_static("./public")
         .seal();
 
     let addr: SocketAddr = "0.0.0.0:3000".parse()?;
