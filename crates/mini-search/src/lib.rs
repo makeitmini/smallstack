@@ -18,7 +18,7 @@ mod tokenizer;
 
 pub use bounds::{BM25_B, BM25_K1, MAX_CANDIDATES, MAX_QUERY_BYTES, MAX_QUERY_TERMS, MAX_RESULTS};
 pub use document::Document;
-pub use engine::{Engine, SearchHit, SearchMetrics};
+pub use engine::{Engine, ExplainHit, FieldContribution, SearchHit, SearchMetrics};
 pub use error::{Error, Result};
 pub use fields::{FieldConfig, FieldType, Visibility};
 pub use index::{Comparison, ExactIndex, InvertedIndex, NumericIndex};

@@ -457,3 +457,100 @@ fn multiple_processors_compose_in_order() {
     // Query becomes "hello world hello" which matches the doc
     assert!(hits[0].score > 0.0);
 }
+
+// --- Explain ---
+
+fn explain_setup() -> Engine {
+    let mut engine = Engine::new();
+    let cfgs = HashMap::from([
+        ("title".to_string(), FieldConfig::new(FieldType::Text)),
+        ("description".to_string(), FieldConfig::new(FieldType::Text)),
+    ]);
+    engine.configure_fields("docs", cfgs);
+
+    let mut f1 = HashMap::new();
+    f1.insert("title".to_string(), json!("hello world"));
+    f1.insert("description".to_string(), json!("foo bar baz"));
+    engine.add_document("docs", Document::new("d1", f1)).unwrap();
+
+    let mut f2 = HashMap::new();
+    f2.insert("title".to_string(), json!("goodbye world"));
+    f2.insert("description".to_string(), json!("hello bar"));
+    engine.add_document("docs", Document::new("d2", f2)).unwrap();
+
+    engine
+}
+
+#[test]
+fn explain_returns_none_for_missing_doc() {
+    let engine = explain_setup();
+    let result = engine.explain("docs", "hello", "nonexistent");
+    assert!(result.is_none());
+}
+
+#[test]
+fn explain_returns_none_for_missing_collection() {
+    let engine = explain_setup();
+    let result = engine.explain("ghost", "hello", "d1");
+    assert!(result.is_none());
+}
+
+#[test]
+fn explain_returns_field_contributions() {
+    let engine = explain_setup();
+    let explain = engine.explain("docs", "hello world", "d1").unwrap();
+
+    assert_eq!(explain.source_collection, "docs");
+    // d1 has "hello world" in title; "foo bar baz" in description — no "world" in desc
+    // Both "hello" and "world" match in title
+    assert!(!explain.field_contributions.is_empty(), "should have contributions");
+
+    // Verify we see contributions for the matching terms
+    let terms: Vec<&str> = explain
+        .field_contributions
+        .iter()
+        .map(|c| c.term.as_str())
+        .collect();
+    assert!(terms.contains(&"hello"));
+    assert!(terms.contains(&"world"));
+
+    // All contributions are for the "title" field
+    for c in &explain.field_contributions {
+        assert_eq!(c.field_name, "title");
+        assert!(c.score_component > 0.0);
+    }
+}
+
+#[test]
+fn explain_returns_doc_with_redacted_hidden_fields() {
+    let mut engine = Engine::new();
+    let mut internal_cfg = FieldConfig::new(FieldType::Text);
+    internal_cfg.visibility = Visibility::Hidden;
+    let cfgs = HashMap::from([
+        ("title".to_string(), FieldConfig::new(FieldType::Text)),
+        ("internal".to_string(), internal_cfg),
+    ]);
+    engine.configure_fields("docs", cfgs);
+    let mut fields = HashMap::new();
+    fields.insert("title".to_string(), json!("hello"));
+    fields.insert("internal".to_string(), json!("secret"));
+    engine.add_document("docs", Document::new("d1", fields)).unwrap();
+
+    let explain = engine.explain("docs", "hello", "d1").unwrap();
+    assert_eq!(explain.doc.get("title"), Some(&json!("hello")));
+    assert!(explain.doc.get("internal").is_none());
+}
+
+#[test]
+fn explain_score_matches_search_score() {
+    let engine = explain_setup();
+    let (hits, _) = engine.search("docs", "hello world").unwrap();
+    let search_hit = hits.iter().find(|h| h.doc.id == "d1").unwrap();
+
+    let explain = engine.explain("docs", "hello world", "d1").unwrap();
+
+    assert!(
+        (search_hit.score - explain.score).abs() < 1e-4,
+        "explain score should match search score"
+    );
+}

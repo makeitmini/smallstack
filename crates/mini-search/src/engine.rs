@@ -15,9 +15,26 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize)]
+pub struct FieldContribution {
+    pub field_name: String,
+    pub term: String,
+    pub score_component: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
     pub doc: Document,
     pub score: f32,
+    #[serde(default)]
+    pub field_contributions: Vec<FieldContribution>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExplainHit {
+    pub doc: Document,
+    pub score: f32,
+    pub source_collection: String,
+    pub field_contributions: Vec<FieldContribution>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -244,26 +261,15 @@ impl Engine {
                 .unwrap_or_default(),
         };
 
-        let mut scores: HashMap<String, f32> = HashMap::new();
-        if !query.text.is_empty() {
+        let (scores, contributions) = if !query.text.is_empty() {
             if let Some(inv) = self.inverted.get(collection) {
-                for clause in &query.text {
-                    let fields = text_search_fields(cfgs, clause.field.as_deref());
-                    for field in &fields {
-                        let boost = cfgs.get(field).map(|c| c.boost).unwrap_or(1.0);
-                        let field_scores =
-                            score_text(inv, field, &[clause.term.clone()], boost);
-                        for (doc_id, score) in field_scores {
-                            if candidates.contains(&doc_id) {
-                                *scores.entry(doc_id).or_insert(0.0) += score;
-                            }
-                        }
-                    }
-                }
+                score_collection(&query, inv, cfgs, &candidates)
+            } else {
+                (HashMap::new(), HashMap::new())
             }
-            scores.retain(|id, _| candidates.contains(id));
-        }
-
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
         let mut scored: Vec<(String, f32)> = if query.text.is_empty() {
             candidates.into_iter().map(|id| (id, 0.0)).collect()
         } else {
@@ -284,6 +290,10 @@ impl Engine {
                 docs.get(&id).map(|doc| SearchHit {
                     doc: redact_document(doc, cfgs),
                     score,
+                    field_contributions: contributions
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_default(),
                 })
             })
             .collect();
@@ -295,6 +305,80 @@ impl Engine {
         };
 
         Ok((hits, metrics))
+    }
+
+    pub fn search_multi(
+        &self,
+        collections: &[&str],
+        query_str: &str,
+    ) -> Result<(Vec<SearchHit>, SearchMetrics)> {
+        let mut merged: HashMap<String, (f32, Document)> = HashMap::new();
+
+        for collection in collections {
+            let (hits, _) = self.search(collection, query_str)?;
+            for hit in hits {
+                merged
+                    .entry(hit.doc.id.clone())
+                    .and_modify(|existing| {
+                        if hit.score > existing.0 {
+                            existing.0 = hit.score;
+                            existing.1 = hit.doc.clone();
+                        }
+                    })
+                    .or_insert((hit.score, hit.doc));
+            }
+        }
+
+        let mut hits: Vec<SearchHit> = merged
+            .into_iter()
+            .map(|(_, (score, doc))| SearchHit {
+                doc,
+                score,
+                field_contributions: Vec::new(),
+            })
+            .collect();
+        hits.sort_by(|a, b| b.score.total_cmp(&a.score));
+        hits.truncate(MAX_RESULTS);
+
+        let metrics = SearchMetrics {
+            total_results: hits.len(),
+        };
+        Ok((hits, metrics))
+    }
+
+    pub fn explain(
+        &self,
+        collection: &str,
+        query_str: &str,
+        doc_id: &str,
+    ) -> Option<ExplainHit> {
+        let cfgs = self.field_configs.get(collection)?;
+        let doc = self.documents.get(collection)?.get(doc_id)?;
+        let query = Query::parse(query_str).ok()?;
+
+        let mut candidates = HashSet::new();
+        candidates.insert(doc_id.to_string());
+
+        let (scores, mut contributions) = if !query.text.is_empty() {
+            if let Some(inv) = self.inverted.get(collection) {
+                score_collection(&query, inv, cfgs, &candidates)
+            } else {
+                (HashMap::new(), HashMap::new())
+            }
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
+
+        let raw_score = scores.get(doc_id).copied().unwrap_or(0.0);
+        let mut scored = vec![(doc_id.to_string(), raw_score)];
+        self.apply_value_boosts(&mut scored, cfgs, collection);
+
+        Some(ExplainHit {
+            doc: redact_document(doc, cfgs),
+            score: scored[0].1,
+            source_collection: collection.to_string(),
+            field_contributions: contributions.remove(doc_id).unwrap_or_default(),
+        })
     }
 }
 
@@ -397,6 +481,39 @@ fn validate_filter(filter: &Filter, cfgs: &HashMap<String, FieldConfig>) -> Resu
         },
         Filter::Exact { .. } => Ok(()),
     }
+}
+
+fn score_collection(
+    query: &Query,
+    inv: &InvertedIndex,
+    cfgs: &HashMap<String, FieldConfig>,
+    candidates: &HashSet<String>,
+) -> (HashMap<String, f32>, HashMap<String, Vec<FieldContribution>>) {
+    let mut scores: HashMap<String, f32> = HashMap::new();
+    let mut contributions: HashMap<String, Vec<FieldContribution>> = HashMap::new();
+
+    for clause in &query.text {
+        let fields = text_search_fields(cfgs, clause.field.as_deref());
+        for field in &fields {
+            let boost = cfgs.get(field).map(|c| c.boost).unwrap_or(1.0);
+            let field_scores = score_text(inv, field, &[clause.term.clone()], boost);
+            for (doc_id, score) in field_scores {
+                if candidates.contains(&doc_id) {
+                    *scores.entry(doc_id.clone()).or_insert(0.0) += score;
+                    contributions
+                        .entry(doc_id.clone())
+                        .or_default()
+                        .push(FieldContribution {
+                            field_name: field.clone(),
+                            term: clause.term.clone(),
+                            score_component: score,
+                        });
+                }
+            }
+        }
+    }
+
+    (scores, contributions)
 }
 
 fn text_search_fields(
