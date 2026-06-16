@@ -16,6 +16,16 @@ impl Tokenizer {
         }
     }
 
+    pub fn with_min_token_len(mut self, len: usize) -> Self {
+        self.min_token_len = len;
+        self
+    }
+
+    pub fn with_stopwords(mut self, words: HashSet<String>) -> Self {
+        self.stopwords = words;
+        self
+    }
+
     pub fn tokenize(&self, text: &str) -> Result<Vec<String>> {
         if text.len() > MAX_QUERY_BYTES {
             return Err(Error::invalid_query(

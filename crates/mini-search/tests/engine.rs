@@ -458,6 +458,48 @@ fn multiple_processors_compose_in_order() {
     assert!(hits[0].score > 0.0);
 }
 
+// --- search_multi ---
+
+#[test]
+fn search_multi_merges_across_collections() {
+    let mut engine = Engine::new();
+    let cfgs = HashMap::from([("notes".to_string(), FieldConfig::new(FieldType::Text))]);
+    engine.configure_fields("docs_a", cfgs.clone());
+    engine.configure_fields("docs_b", cfgs);
+
+    let mut f1a = HashMap::new();
+    f1a.insert("notes".to_string(), json!("hello world"));
+    engine.add_document("docs_a", Document::new("d1", f1a)).unwrap();
+
+    let mut f1b = HashMap::new();
+    f1b.insert("notes".to_string(), json!("goodbye"));
+    engine.add_document("docs_b", Document::new("d1", f1b)).unwrap();
+
+    let mut f2 = HashMap::new();
+    f2.insert("notes".to_string(), json!("goodbye"));
+    engine.add_document("docs_a", Document::new("d2", f2)).unwrap();
+
+    // "hello" only matches d1 in docs_a
+    let (hits, m) = engine
+        .search_multi(&["docs_a", "docs_b"], "hello")
+        .unwrap();
+    assert_eq!(ids(&hits), vec!["d1"], "hello only matches d1 from docs_a");
+    assert_eq!(m.total_results, 1);
+
+    // "goodbye" matches d1 (docs_b) and d2 (docs_a)
+    let (hits, m) = engine
+        .search_multi(&["docs_a", "docs_b"], "goodbye")
+        .unwrap();
+    assert_eq!(hits.len(), 2, "goodbye matches both docs");
+    assert_eq!(m.total_results, 2);
+    // Both d1 and d2 should be present, sorted by score desc
+    let result_ids = ids(&hits);
+    assert!(result_ids.contains(&"d1"), "d1 should be in results");
+    assert!(result_ids.contains(&"d2"), "d2 should be in results");
+    // d1 from docs_b and d2 from docs_a both match "goodbye",
+    // but d1 also matched via title = same score for both
+}
+
 // --- Explain ---
 
 fn explain_setup() -> Engine {

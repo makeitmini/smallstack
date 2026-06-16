@@ -99,3 +99,24 @@ fn leading_trailing_whitespace_is_handled() {
         vec!["hello", "world"]
     );
 }
+
+#[test]
+fn custom_min_token_len_filters_short_tokens() {
+    let t = Tokenizer::new().with_min_token_len(3);
+    assert_eq!(
+        t.tokenize("ab cd efg").unwrap(),
+        vec!["efg"]
+    );
+}
+
+#[test]
+fn stopwords_are_filtered() {
+    let mut stopwords = std::collections::HashSet::new();
+    stopwords.insert("the".to_string());
+    stopwords.insert("a".to_string());
+    let t = Tokenizer::new().with_stopwords(stopwords);
+    assert_eq!(
+        t.tokenize("the quick brown fox").unwrap(),
+        vec!["quick", "brown", "fox"]
+    );
+}

@@ -103,6 +103,23 @@ fn collection_name_with_dot_dot_returns_invalid_query() {
 }
 
 #[test]
+fn round_trip_empty_engine() {
+    let dir = tempfile::tempdir().unwrap();
+
+    {
+        let e = Engine::open(dir.path()).unwrap();
+        e.save().unwrap();
+    }
+
+    // After empty save, we can still use the engine
+    let mut e = Engine::open(dir.path()).unwrap();
+    e.configure_fields("meds", cfgs());
+    e.add_document("meds", doc_a()).unwrap();
+    let (hits, _) = e.search("meds", "dog").unwrap();
+    assert_eq!(ids(&hits), vec!["d_a"], "engine is functional after empty save");
+}
+
+#[test]
 fn no_path_traversal_on_save() {
     let dir = tempfile::tempdir().unwrap();
     let mut e = Engine::open(dir.path()).unwrap();

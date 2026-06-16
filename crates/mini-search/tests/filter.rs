@@ -115,6 +115,21 @@ fn remove_cleans_up_numeric() {
 }
 
 #[test]
+fn remove_nonexistent_field_is_noop() {
+    let mut idx = ExactIndex::new();
+    // Should not panic
+    idx.remove("ghost", "d_1");
+}
+
+#[test]
+fn remove_cleans_up_exact_last_doc_removes_field() {
+    let mut idx = ExactIndex::new();
+    idx.insert("active", "true", "d_1");
+    idx.remove("active", "d_1");
+    assert!(idx.matching("active", "true").is_empty());
+}
+
+#[test]
 fn remove_cleans_up_exact() {
     let mut idx = ExactIndex::new();
     idx.insert("active", "true", "d_1");

@@ -89,3 +89,30 @@ fn different_variants_not_equal() {
     let b = Error::invalid_query("bad");
     assert_ne!(a, b);
 }
+
+#[test]
+fn io_error_source_returns_inner_error() {
+    let inner = std::io::Error::new(std::io::ErrorKind::NotFound, "no file");
+    let err: Error = inner.into();
+    let source = std::error::Error::source(&err);
+    assert!(source.is_some());
+    assert_eq!(source.unwrap().to_string(), "no file");
+}
+
+#[test]
+fn io_errors_never_equal() {
+    let a = Error::from(std::io::Error::new(std::io::ErrorKind::NotFound, "a"));
+    let b = Error::from(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "b"));
+    assert_ne!(a, b, "Io errors with different causes are not equal");
+}
+
+#[test]
+fn visibility_stored_round_trips() {
+    let mut cfg = FieldConfig::new(FieldType::Text);
+    cfg.visibility = Visibility::Stored;
+    assert_eq!(cfg.visibility, Visibility::Stored);
+
+    let json_str = serde_json::to_string(&cfg).unwrap();
+    let round: FieldConfig = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(round.visibility, Visibility::Stored);
+}
