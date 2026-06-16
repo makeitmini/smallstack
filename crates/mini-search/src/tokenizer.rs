@@ -2,7 +2,7 @@ use crate::bounds::MAX_QUERY_BYTES;
 use crate::error::{Error, Result};
 use std::collections::HashSet;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Tokenizer {
     min_token_len: usize,
     stopwords: HashSet<String>,
