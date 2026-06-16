@@ -7,18 +7,19 @@ use crate::numkey::NumKey;
 use crate::query::{Filter, Query};
 use crate::score::score_text;
 use crate::tokenizer::Tokenizer;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "persist")]
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SearchHit {
     pub doc: Document,
     pub score: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SearchMetrics {
     pub total_results: usize,
 }

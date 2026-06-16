@@ -9,6 +9,8 @@ mod index;
 mod numkey;
 #[cfg(feature = "persist")]
 mod persist;
+#[cfg(feature = "wasm")]
+mod wasm;
 mod query;
 mod score;
 mod tokenizer;
