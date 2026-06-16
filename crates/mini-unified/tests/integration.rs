@@ -1,6 +1,7 @@
 use std::fs;
 
 use mini_serve::RouteBuilder;
+use mini_unified::StaticRouteBuilderExt;
 
 fn write_tree(dir: &std::path::Path) {
     fs::create_dir_all(dir.join("sub")).unwrap();
@@ -86,4 +87,82 @@ async fn wildcard_route_serves_file_in_nested_dir() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.text().await.unwrap(), "<h1>nested</h1>");
+}
+
+#[tokio::test]
+async fn serve_static_serves_index_html_at_root() {
+    let dir = tempfile::tempdir().unwrap();
+    write_tree(dir.path());
+
+    let app = RouteBuilder::stateless()
+        .serve_static(dir.path())
+        .seal();
+
+    let port = app.bind_ephemeral().await.unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "<h1>hello</h1>");
+}
+
+#[tokio::test]
+async fn serve_static_serves_nested_path() {
+    let dir = tempfile::tempdir().unwrap();
+    write_tree(dir.path());
+
+    let app = RouteBuilder::stateless()
+        .serve_static(dir.path())
+        .seal();
+
+    let port = app.bind_ephemeral().await.unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/sub/page.html"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().await.unwrap(), "<h1>nested</h1>");
+}
+
+#[tokio::test]
+async fn serve_static_returns_404_for_missing_file() {
+    let dir = tempfile::tempdir().unwrap();
+    write_tree(dir.path());
+
+    let app = RouteBuilder::stateless()
+        .serve_static(dir.path())
+        .seal();
+
+    let port = app.bind_ephemeral().await.unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/nonexistent.txt"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn serve_static_with_api_route_precedence() {
+    let dir = tempfile::tempdir().unwrap();
+    write_tree(dir.path());
+
+    let app = RouteBuilder::stateless()
+        .get("/api/users", mini_serve::handler(|_, _| async {
+            Ok(mini_serve::json(
+                hyper::StatusCode::OK,
+                &serde_json::json!({"users": ["alice", "bob"]}),
+            )?)
+        }))
+        .serve_static(dir.path())
+        .seal();
+
+    let port = app.bind_ephemeral().await.unwrap();
+
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}/api/users"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["users"][0], "alice");
 }
