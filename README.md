@@ -6,12 +6,13 @@ A workspace of independent Rust crates for building small, focused HTTP services
 |---|---|---|
 | [`mini-err`](crates/mini-err) | Structured scoped errors with HTTP-friendly codes | Yes |
 | [`mini-log`](crates/mini-log) | Structured logger with level filtering and JSON output | Yes |
+| [`mini-search`](crates/mini-search) | In-process search engine with BM25 scoring, filters, and field visibility | Yes |
 | [`mini-serve`](crates/mini-serve) | HTTP server with router, middleware, CORS, TLS | Yes |
 | [`mini-static`](crates/mini-static) | Secure static file server with range requests and live reload | Yes |
 
 ## Design
 
-**Small surface area.** Every crate does one thing and one thing well. `mini-err` is an error enum. `mini-log` is a logger. `mini-serve` routes HTTP requests. `mini-static` serves files. None of them is a framework.
+**Small surface area.** Every crate does one thing and one thing well. `mini-err` is an error enum. `mini-log` is a logger. `mini-search` ranks documents. `mini-serve` routes HTTP requests. `mini-static` serves files. None of them is a framework.
 
 **Composable via feature flags.** Supporting crates are optional and gated behind Cargo features (`err`, `log`, `tls`). Using `mini-serve` with `mini-err` is explicit in your `Cargo.toml`, not a transitive surprise.
 
