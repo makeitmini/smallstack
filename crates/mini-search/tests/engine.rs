@@ -168,3 +168,135 @@ fn empty_query_returns_all_docs() {
     result_ids.sort();
     assert_eq!(result_ids, vec!["d_a", "d_b"]);
 }
+
+// --- Defect #2 regression: value boost applied ONCE (not × k²) ---
+
+fn boost_setup(boost: Option<f32>) -> (Engine, HashMap<String, FieldConfig>) {
+    let mut species_cfg = FieldConfig::new(FieldType::Text);
+    if let Some(b) = boost {
+        species_cfg.value_boosts.insert("dog".to_string(), b);
+    }
+    let cfgs = HashMap::from([
+        ("notes".to_string(), FieldConfig::new(FieldType::Text)),
+        ("species".to_string(), species_cfg),
+    ]);
+    let mut engine = Engine::new();
+    engine.configure_fields("pets", cfgs.clone());
+
+    let mut f1 = HashMap::new();
+    f1.insert("notes".to_string(), json!("dog"));
+    f1.insert("species".to_string(), json!("dog"));
+    engine.add_document("pets", Document::new("d_dog", f1)).unwrap();
+
+    let mut f2 = HashMap::new();
+    f2.insert("notes".to_string(), json!("dog"));
+    f2.insert("species".to_string(), json!("cat"));
+    engine.add_document("pets", Document::new("d_cat", f2)).unwrap();
+
+    (engine, cfgs)
+}
+
+#[test]
+fn value_boost_applied_once() {
+    let (engine, _) = boost_setup(Some(2.0));
+    let (hits, _) = engine.search("pets", "dog").unwrap();
+    let boosted = hits
+        .iter()
+        .find(|h| h.doc.id == "d_dog")
+        .map(|h| h.score)
+        .unwrap_or(0.0);
+
+    let (engine_base, _) = boost_setup(None);
+    let (hits_base, _) = engine_base.search("pets", "dog").unwrap();
+    let base = hits_base
+        .iter()
+        .find(|h| h.doc.id == "d_dog")
+        .map(|h| h.score)
+        .unwrap_or(0.0);
+
+    assert!((boosted - base * 2.0).abs() < 1e-4, "boosted should be base × 2");
+    assert!(
+        (boosted - base * 4.0).abs() > 1e-4,
+        "boosted should NOT be base × 4 (double application)"
+    );
+}
+
+#[test]
+fn penalty_halves_score_once() {
+    let (engine, _) = boost_setup(Some(0.5));
+    let (hits, _) = engine.search("pets", "dog").unwrap();
+    let boosted = hits
+        .iter()
+        .find(|h| h.doc.id == "d_dog")
+        .map(|h| h.score)
+        .unwrap_or(0.0);
+
+    let (engine_base, _) = boost_setup(None);
+    let (hits_base, _) = engine_base.search("pets", "dog").unwrap();
+    let base = hits_base
+        .iter()
+        .find(|h| h.doc.id == "d_dog")
+        .map(|h| h.score)
+        .unwrap_or(0.0);
+
+    assert!((boosted - base * 0.5).abs() < 1e-4, "penalty should halve the score once");
+}
+
+#[test]
+fn value_boost_on_non_matching_field_leaves_score_unchanged() {
+    let (engine, _) = boost_setup(Some(2.0));
+    let (hits, _) = engine.search("pets", "dog").unwrap();
+    let cat_score = hits
+        .iter()
+        .find(|h| h.doc.id == "d_cat")
+        .map(|h| h.score)
+        .unwrap_or(0.0);
+
+    let (engine_base, _) = boost_setup(None);
+    let (hits_base, _) = engine_base.search("pets", "dog").unwrap();
+    let base_cat = hits_base
+        .iter()
+        .find(|h| h.doc.id == "d_cat")
+        .map(|h| h.score)
+        .unwrap_or(0.0);
+
+    assert!(
+        (cat_score - base_cat).abs() < 1e-4,
+        "cat doc should have unchanged score (species≠dog)"
+    );
+}
+
+#[test]
+fn boost_and_penalty_compose_multiplicatively() {
+    let mut species_cfg = FieldConfig::new(FieldType::Text);
+    species_cfg.value_boosts.insert("dog".to_string(), 2.0);
+    species_cfg.value_boosts.insert("cat".to_string(), 0.5);
+
+    let cfgs = HashMap::from([
+        ("notes".to_string(), FieldConfig::new(FieldType::Text)),
+        ("species".to_string(), species_cfg),
+    ]);
+    let mut engine = Engine::new();
+    engine.configure_fields("pets", cfgs);
+
+    let mut f1 = HashMap::new();
+    f1.insert("notes".to_string(), json!("dog"));
+    f1.insert("species".to_string(), json!("dog"));
+    engine.add_document("pets", Document::new("d1", f1)).unwrap();
+
+    let mut f2 = HashMap::new();
+    f2.insert("notes".to_string(), json!("dog"));
+    f2.insert("species".to_string(), json!("cat"));
+    engine.add_document("pets", Document::new("d2", f2)).unwrap();
+
+    let (hits, _) = engine.search("pets", "dog").unwrap();
+    let score_dog = hits.iter().find(|h| h.doc.id == "d1").map(|h| h.score).unwrap_or(0.0);
+    let score_cat = hits.iter().find(|h| h.doc.id == "d2").map(|h| h.score).unwrap_or(0.0);
+
+    let (engine_base, _) = boost_setup(None);
+    let (hits_base, _) = engine_base.search("pets", "dog").unwrap();
+    let base_dog = hits_base.iter().find(|h| h.doc.id == "d_dog").map(|h| h.score).unwrap_or(0.0);
+
+    assert!((score_dog - base_dog * 2.0).abs() < 1e-4);
+    assert!((score_cat - base_dog * 0.5).abs() < 1e_4);
+}

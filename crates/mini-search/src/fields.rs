@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FieldType {
@@ -34,6 +35,8 @@ pub struct FieldConfig {
     pub searchable: bool,
     #[serde(default)]
     pub visibility: Visibility,
+    #[serde(default)]
+    pub value_boosts: HashMap<String, f32>,
 }
 
 fn default_boost() -> f32 {
@@ -51,6 +54,7 @@ impl FieldConfig {
             boost: 1.0,
             searchable: true,
             visibility: Visibility::Indexed,
+            value_boosts: HashMap::new(),
         }
     }
 }

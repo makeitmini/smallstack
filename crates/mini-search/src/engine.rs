@@ -223,6 +223,7 @@ impl Engine {
         } else {
             scores.into_iter().collect()
         };
+        self.apply_value_boosts(&mut scored, cfgs, collection);
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
         scored.truncate(MAX_RESULTS);
 
@@ -246,6 +247,42 @@ impl Engine {
         };
 
         Ok((hits, metrics))
+    }
+}
+
+impl Engine {
+    fn apply_value_boosts(
+        &self,
+        scored: &mut [(String, f32)],
+        cfgs: &HashMap<String, FieldConfig>,
+        collection: &str,
+    ) {
+        let docs = match self.documents.get(collection) {
+            Some(d) => d,
+            None => return,
+        };
+        for (doc_id, score) in scored.iter_mut() {
+            let doc = match docs.get(doc_id) {
+                Some(d) => d,
+                None => continue,
+            };
+            for (field_name, cfg) in cfgs {
+                if cfg.value_boosts.is_empty() {
+                    continue;
+                }
+                let value_str = match doc.get(field_name) {
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    Some(serde_json::Value::Bool(b)) => {
+                        (if *b { "true" } else { "false" }).to_string()
+                    }
+                    Some(serde_json::Value::Number(n)) => n.to_string(),
+                    _ => continue,
+                };
+                if let Some(multiplier) = cfg.value_boosts.get(&value_str) {
+                    *score *= multiplier;
+                }
+            }
+        }
     }
 }
 
