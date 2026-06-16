@@ -1,7 +1,7 @@
 use crate::bounds::MAX_RESULTS;
 use crate::document::Document;
 use crate::error::{Error, Result};
-use crate::fields::{FieldConfig, FieldType};
+use crate::fields::{FieldConfig, FieldType, Visibility};
 use crate::index::{ExactIndex, InvertedIndex, NumericIndex};
 use crate::numkey::NumKey;
 use crate::query::{Filter, Query};
@@ -122,8 +122,10 @@ impl Engine {
         Ok(())
     }
 
-    pub fn lookup(&self, collection: &str, doc_id: &str) -> Option<&Document> {
-        self.documents.get(collection)?.get(doc_id)
+    pub fn lookup(&self, collection: &str, doc_id: &str) -> Option<Document> {
+        let cfgs = self.field_configs.get(collection)?;
+        let doc = self.documents.get(collection)?.get(doc_id)?;
+        Some(redact_document(doc, cfgs))
     }
 
     pub fn search(
@@ -242,7 +244,7 @@ impl Engine {
             .into_iter()
             .filter_map(|(id, score)| {
                 docs.get(&id).map(|doc| SearchHit {
-                    doc: doc.clone(),
+                    doc: redact_document(doc, cfgs),
                     score,
                 })
             })
@@ -296,6 +298,27 @@ impl Default for Engine {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn redact_document(doc: &Document, cfgs: &HashMap<String, FieldConfig>) -> Document {
+    let hidden: HashSet<&str> = cfgs
+        .iter()
+        .filter(|(_, cfg)| cfg.visibility == Visibility::Hidden)
+        .map(|(name, _)| name.as_str())
+        .collect();
+
+    if hidden.is_empty() {
+        return doc.clone();
+    }
+
+    let fields: HashMap<String, Value> = doc
+        .fields
+        .iter()
+        .filter(|(name, _)| !hidden.contains(name.as_str()))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+
+    Document::new(doc.id.clone(), fields)
 }
 
 fn validate_filter(filter: &Filter, cfgs: &HashMap<String, FieldConfig>) -> Result<()> {

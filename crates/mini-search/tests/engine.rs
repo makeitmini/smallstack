@@ -1,4 +1,4 @@
-use mini_search::{Document, Engine, FieldConfig, FieldType, SearchHit};
+use mini_search::{Document, Engine, FieldConfig, FieldType, SearchHit, Visibility};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -67,9 +67,9 @@ fn text_intersected_with_satisfiable_filter() {
 fn add_document_then_lookup_returns_doc() {
     let (engine, _) = setup();
     let doc = engine.lookup("meds", "d_a");
-    assert!(doc.is_some());
-    assert_eq!(doc.unwrap().id, "d_a");
-    assert_eq!(doc.unwrap().get("dose_mg"), Some(&json!(3.0)));
+    let doc = doc.unwrap();
+    assert_eq!(doc.id, "d_a");
+    assert_eq!(doc.get("dose_mg"), Some(&json!(3.0)));
 }
 
 // --- Support: configure_fields + add_document works ---
@@ -299,4 +299,64 @@ fn boost_and_penalty_compose_multiplicatively() {
 
     assert!((score_dog - base_dog * 2.0).abs() < 1e-4);
     assert!((score_cat - base_dog * 0.5).abs() < 1e_4);
+}
+
+// --- Visibility: Hidden fields are searchable but absent from results ---
+
+#[test]
+fn hidden_field_searchable_but_absent_from_search_results() {
+    let mut internal_cfg = FieldConfig::new(FieldType::Text);
+    internal_cfg.visibility = Visibility::Hidden;
+    let cfgs = HashMap::from([
+        ("brand_name".to_string(), FieldConfig::new(FieldType::Text)),
+        ("internal_notes".to_string(), internal_cfg),
+    ]);
+    let mut engine = Engine::new();
+    engine.configure_fields("meds", cfgs);
+
+    let mut f1 = HashMap::new();
+    f1.insert("brand_name".to_string(), json!("Acetaminophen"));
+    f1.insert("internal_notes".to_string(), json!("confidential review pending"));
+    engine.add_document("meds", Document::new("d_1", f1)).unwrap();
+
+    let mut f2 = HashMap::new();
+    f2.insert("brand_name".to_string(), json!("Ibuprofen"));
+    f2.insert("internal_notes".to_string(), json!("approved"));
+    engine.add_document("meds", Document::new("d_2", f2)).unwrap();
+
+    let (hits, _) = engine.search("meds", "internal_notes:confidential").unwrap();
+    assert_eq!(ids(&hits), vec!["d_1"], "searchable by hidden field");
+
+    assert!(hits[0].doc.get("internal_notes").is_none(), "hidden field stripped");
+    assert_eq!(
+        hits[0].doc.get("brand_name"),
+        Some(&json!("Acetaminophen")),
+        "visible field preserved"
+    );
+}
+
+#[test]
+fn lookup_redacts_hidden_fields() {
+    let mut internal_cfg = FieldConfig::new(FieldType::Text);
+    internal_cfg.visibility = Visibility::Hidden;
+    let cfgs = HashMap::from([
+        ("brand_name".to_string(), FieldConfig::new(FieldType::Text)),
+        ("internal_notes".to_string(), internal_cfg),
+    ]);
+    let mut engine = Engine::new();
+    engine.configure_fields("meds", cfgs);
+
+    let mut f1 = HashMap::new();
+    f1.insert("brand_name".to_string(), json!("Acetaminophen"));
+    f1.insert("internal_notes".to_string(), json!("confidential"));
+    engine.add_document("meds", Document::new("d_1", f1)).unwrap();
+
+    let doc = engine.lookup("meds", "d_1").unwrap();
+    assert_eq!(doc.id, "d_1");
+    assert_eq!(
+        doc.get("brand_name"),
+        Some(&json!("Acetaminophen")),
+        "visible field preserved in lookup"
+    );
+    assert!(doc.get("internal_notes").is_none(), "hidden field stripped in lookup");
 }
