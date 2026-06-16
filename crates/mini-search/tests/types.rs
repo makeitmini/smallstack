@@ -1,5 +1,5 @@
 use mini_search::{Document, Error, FieldConfig, FieldType, Visibility};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 
 #[test]
