@@ -448,6 +448,25 @@ fn is_not_modified(headers: &HeaderMap, etag: &str, mtime: SystemTime) -> bool {
     false
 }
 
+pub async fn handle_request(
+    req: Request<Incoming>,
+    dir: &Path,
+    handlers: &[Arc<dyn Handler>],
+    transform: Option<Arc<dyn Transform>>,
+) -> Response<BoxBody<Bytes, Infallible>> {
+    let resp = handle(req, dir, handlers, &transform).await;
+    let (parts, body) = resp.into_parts();
+    let bytes = body
+        .collect()
+        .await
+        .map(|collected| collected.to_bytes())
+        .unwrap_or_else(|_| Bytes::new());
+    let mut resp = Response::new(BoxBody::new(Full::new(bytes)));
+    *resp.status_mut() = parts.status;
+    *resp.headers_mut() = parts.headers;
+    resp
+}
+
 async fn handle(
     req: Request<Incoming>,
     dir: &Path,

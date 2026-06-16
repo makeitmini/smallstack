@@ -13,5 +13,5 @@ pub use handler::{Handler, RequestInfo, ResponseBody};
 pub use live::{Broadcaster, ChangeType, ReloadEvent};
 pub use mime::mime_type;
 pub use resolve::resolve;
-pub use server::Server;
+pub use server::{handle_request, Server};
 pub use transform::Transform;
