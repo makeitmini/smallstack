@@ -1,0 +1,10 @@
+services:
+  demo:
+    build:
+      context: .
+      dockerfile: crates/demo/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-conventional}
