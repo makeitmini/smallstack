@@ -131,11 +131,12 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "demo"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "hyper",
  "mini-err",
  "mini-log",
+ "mini-search",
  "mini-serve",
  "mini-unified",
  "reqwest",
@@ -723,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "mini-search"
-version = "0.14.1"
+version = "0.14.2"
 dependencies = [
  "console_error_panic_hook",
  "serde",
@@ -735,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "mini-serve"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "futures-core",
  "http-body",
@@ -744,6 +745,7 @@ dependencies = [
  "hyper-util",
  "mini-err",
  "mini-log",
+ "percent-encoding",
  "rcgen",
  "reqwest",
  "rustls",

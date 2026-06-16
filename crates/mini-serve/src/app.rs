@@ -20,6 +20,7 @@ use crate::handler::{Handler, ResponseBody};
 use crate::middleware::{CorsConfig, Middleware};
 use crate::router::{QueryParams, Router};
 use crate::state::State;
+use percent_encoding::percent_decode_str;
 
 /// Maximum request URI path length in bytes.
 const MAX_PATH_LEN: usize = 8_192;
@@ -52,9 +53,12 @@ fn parse_query(query: Option<&str>) -> QueryParams {
     if let Some(query) = query {
         for pair in query.split('&').filter(|s| !s.is_empty()) {
             if let Some((key, value)) = pair.split_once('=') {
-                map.insert(key.to_string(), value.to_string());
+                let key = percent_decode_str(key).decode_utf8_lossy().into_owned();
+                let value = percent_decode_str(value).decode_utf8_lossy().into_owned();
+                map.insert(key, value);
             } else {
-                map.insert(pair.to_string(), String::new());
+                let pair = percent_decode_str(pair).decode_utf8_lossy().into_owned();
+                map.insert(pair, String::new());
             }
         }
     }
@@ -112,9 +116,15 @@ mod parse_query_tests {
     }
 
     #[test]
-    fn percent_encoded_value_is_preserved() {
+    fn percent_encoded_colon_equals() {
+        let p = parse_query(Some("q=category%3A%3Delectronics"));
+        assert_eq!(p.0.get("q").unwrap(), "category:=electronics");
+    }
+
+    #[test]
+    fn percent_encoded_value_is_decoded() {
         let p = parse_query(Some("q=hello%20world"));
-        assert_eq!(p.0.get("q").unwrap(), "hello%20world");
+        assert_eq!(p.0.get("q").unwrap(), "hello world");
     }
 
     #[test]

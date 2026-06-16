@@ -112,23 +112,37 @@ impl Query {
 
                 let first = value.chars().next().unwrap();
                 if first == '>' || first == '<' || first == '=' {
-                    let (op, num_str) = split_operator(value);
-                    let num: f64 = num_str
-                        .parse()
-                        .map_err(|_| Error::invalid_query("invalid number in comparison"))?;
-                    let op = match op {
-                        ">=" => Comparison::Gte,
-                        ">" => Comparison::Gt,
-                        "<=" => Comparison::Lte,
-                        "<" => Comparison::Lt,
-                        "=" => Comparison::Eq,
-                        _ => return Err(Error::invalid_query("unknown operator")),
-                    };
-                    filters.push(Filter::Compare {
-                        field: field.to_string(),
-                        op,
-                        value: num,
-                    });
+                    let (op, raw) = split_operator(value);
+                    if op == "=" {
+                        if let Ok(num) = raw.parse::<f64>() {
+                            filters.push(Filter::Compare {
+                                field: field.to_string(),
+                                op: Comparison::Eq,
+                                value: num,
+                            });
+                        } else {
+                            filters.push(Filter::Exact {
+                                field: field.to_string(),
+                                value: raw.to_string(),
+                            });
+                        }
+                    } else {
+                        let num: f64 = raw
+                            .parse()
+                            .map_err(|_| Error::invalid_query("invalid number in comparison"))?;
+                        let op = match op {
+                            ">=" => Comparison::Gte,
+                            ">" => Comparison::Gt,
+                            "<=" => Comparison::Lte,
+                            "<" => Comparison::Lt,
+                            _ => return Err(Error::invalid_query("unknown operator")),
+                        };
+                        filters.push(Filter::Compare {
+                            field: field.to_string(),
+                            op,
+                            value: num,
+                        });
+                    }
                 } else if value.starts_with('[') {
                     let inner = value
                         .strip_prefix('[')

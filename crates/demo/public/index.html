@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Smallstack Demo</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 680px; margin: 2rem auto; padding: 0 1rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
   h1 { margin-bottom: .25rem; }
+  h2 { font-size: 1.1rem; margin: 0 0 .75rem 0; }
   .sub { color: #666; margin-top: 0; }
   hr { margin: 1.5rem 0; }
   .row { display: flex; gap: .5rem; margin-bottom: .75rem; align-items: center; }
   input, select { flex: 1; padding: .4rem .5rem; border: 1px solid #ccc; border-radius: 4px; }
-  button { padding: .4rem .9rem; border: 1px solid #888; border-radius: 4px; background: #f5f5f5; cursor: pointer; }
+  button { padding: .4rem .9rem; border: 1px solid #888; border-radius: 4px; background: #f5f5f5; cursor: pointer; white-space: nowrap; }
   button:hover { background: #e5e5e5; }
   button.primary { background: #0066cc; color: #fff; border-color: #0066cc; }
   button.primary:hover { background: #0055aa; }
@@ -19,12 +20,28 @@
   .status { font-size: .8rem; color: #666; margin-left: .5rem; }
   .ok { color: #0a0; }
   .err { color: #c00; }
+  .chip { display: inline-block; padding: .15rem .5rem; margin: .15rem; border-radius: 12px; font-size: .75rem; border: 1px solid #aaa; cursor: pointer; background: #eee; }
+  .chip:hover { background: #ddd; }
+  .chip.active { background: #0066cc; color: #fff; border-color: #0066cc; }
+  .hit { border: 1px solid #ddd; border-radius: 6px; padding: .6rem .8rem; margin-bottom: .5rem; }
+  .hit h3 { margin: 0 0 .3rem 0; font-size: .95rem; }
+  .hit .meta { font-size: .78rem; color: #555; display: flex; gap: 1rem; flex-wrap: wrap; }
+  .hit .score { font-weight: 600; color: #0066cc; }
+  .hit .explain { font-size: .78rem; margin-top: .4rem; padding-top: .4rem; border-top: 1px solid #eee; display: none; }
+  .hit .explain.open { display: block; }
+  .hit .explain table { width: 100%; border-collapse: collapse; }
+  .hit .explain td { padding: .1rem .4rem; }
+  .hit .explain td:last-child { text-align: right; font-family: monospace; }
+  .stars { color: #e6a817; }
+  .tag { background: #e8e8e8; border-radius: 8px; padding: .05rem .4rem; font-size: .7rem; }
+  .results-info { font-size: .8rem; color: #666; margin-bottom: .5rem; }
+  #searchResults { margin-top: .5rem; }
 </style>
 </head>
 <body>
 
 <h1>Smallstack Demo</h1>
-<p class="sub">API server powered by <code>mini-serve</code> + <code>mini-unified</code></p>
+<p class="sub">API server powered by <code>mini-serve</code> + <code>mini-unified</code> + <code>mini-search</code></p>
 
 <hr>
 
@@ -47,6 +64,20 @@
 
 <pre id="output">// response will appear here</pre>
 
+<hr>
+
+<h2>Search Products</h2>
+
+<div class="row">
+  <input id="searchInput" type="text" placeholder='e.g. "wireless", "bluetooth", "price:>50", "electronics category:=home"' autofocus>
+  <button class="primary" id="searchBtn">Go</button>
+  <button id="seedBtn">Seed</button>
+</div>
+
+<div id="categoryFilters"></div>
+<div class="results-info" id="resultsInfo"></div>
+<div id="searchResults"></div>
+
 <script>
 const $ = id => document.getElementById(id);
 const nameInput = $('nameInput');
@@ -57,6 +88,12 @@ const getBtn = $('getBtn');
 const refreshBtn = $('refreshBtn');
 const listStatus = $('listStatus');
 const output = $('output');
+const searchInput = $('searchInput');
+const searchBtn = $('searchBtn');
+const seedBtn = $('seedBtn');
+const categoryFilters = $('categoryFilters');
+const resultsInfo = $('resultsInfo');
+const searchResults = $('searchResults');
 
 function show(resp, data) {
   output.textContent = `${resp.status} ${resp.statusText}\n${JSON.stringify(data, null, 2)}`;
@@ -65,6 +102,11 @@ function show(resp, data) {
 function status(el, text, ok) {
   el.textContent = text;
   el.className = 'status' + (ok !== undefined ? (ok ? ' ok' : ' err') : '');
+}
+
+function stars(rating) {
+  const full = Math.round(rating);
+  return '★'.repeat(full) + '☆'.repeat(5 - full);
 }
 
 async function loadItems() {
@@ -119,7 +161,165 @@ nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addBtn.click
 getBtn.addEventListener('click', getItem);
 refreshBtn.addEventListener('click', loadItems);
 
+// ── Search ──────────────────────────────────────────────────────────
+
+const CATEGORIES = ['electronics', 'home', 'grocery', 'sports', 'clothing'];
+let activeCategory = '';
+
+function renderCategoryFilters() {
+  categoryFilters.innerHTML = CATEGORIES.map(c =>
+    `<span class="chip${activeCategory === c ? ' active' : ''}" data-cat="${c}">${c}</span>`
+  ).join('');
+  categoryFilters.querySelectorAll('.chip').forEach(el => {
+    el.addEventListener('click', () => {
+      const cat = el.dataset.cat;
+      activeCategory = activeCategory === cat ? '' : cat;
+      renderCategoryFilters();
+      doSearch();
+    });
+  });
+}
+
+function renderExplain(explain) {
+  if (!explain || !explain.field_contributions || !explain.field_contributions.length) return '';
+  const rows = explain.field_contributions.map(fc =>
+    `<tr><td>${esc(fc.field_name)}</td><td>${esc(fc.term)}</td><td>${fc.score_component.toFixed(4)}</td></tr>`
+  ).join('');
+  return `<div class="explain" id="explain-${esc(explain.doc_id || '')}">
+    <table><tr><th>Field</th><th>Term</th><th>Score</th></tr>${rows}</table>
+  </div>`;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderHit(hit) {
+  const d = hit.doc || {};
+  const fields = d.fields || d;
+  const title = fields.title || d.id || '?';
+  const cat = fields.category || '';
+  const price = fields.price !== undefined ? '$' + Number(fields.price).toFixed(2) : '';
+  const rating = fields.rating !== undefined ? Number(fields.rating) : 0;
+  const tags = Array.isArray(fields.tags) ? fields.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ') : '';
+  const inStock = fields.in_stock !== undefined ? (fields.in_stock ? 'In stock' : 'Out of stock') : '';
+  const reviews = fields.reviews !== undefined ? `${fields.reviews} reviews` : '';
+  const docId = d.id || hit.doc_id || '';
+  const explainId = 'exp-' + docId;
+
+  return `<div class="hit">
+    <h3>${esc(title)} <span class="stars">${stars(rating)}</span></h3>
+    <div class="meta">
+      <span class="score">Score: ${hit.score.toFixed(2)}</span>
+      ${cat ? `<span>${esc(cat)}</span>` : ''}
+      ${price ? `<span>${price}</span>` : ''}
+      ${inStock ? `<span>${inStock}</span>` : ''}
+      ${reviews ? `<span>${reviews}</span>` : ''}
+    </div>
+    <div style="margin-top:.3rem">${tags}</div>
+    <div style="margin-top:.3rem">
+      <a href="#" class="explain-toggle" data-id="${docId}" data-query="${esc(searchInput.value)}">Explain</a>
+    </div>
+    <div class="explain" id="${explainId}"></div>
+  </div>`;
+}
+
+let explainCache = {};
+
+async function toggleExplain(docId, query, el) {
+  const explainDiv = document.getElementById('exp-' + docId);
+  if (!explainDiv) return;
+  if (explainDiv.classList.contains('open')) {
+    explainDiv.classList.remove('open');
+    el.textContent = 'Explain';
+    return;
+  }
+  if (explainCache[docId]) {
+    explainDiv.innerHTML = explainCache[docId];
+    explainDiv.classList.add('open');
+    el.textContent = 'Hide';
+    return;
+  }
+  try {
+    const resp = await fetch(`/api/search/explain?q=${encodeURIComponent(query)}&id=${encodeURIComponent(docId)}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.field_contributions || !data.field_contributions.length) {
+      explainDiv.textContent = 'No field contributions available.';
+    } else {
+      const rows = data.field_contributions.map(fc =>
+        `<tr><td>${esc(fc.field_name)}</td><td>${esc(fc.term)}</td><td>${fc.score_component.toFixed(4)}</td></tr>`
+      ).join('');
+      explainDiv.innerHTML = `<table><tr><th>Field</th><th>Term</th><th>Score</th></tr>${rows}</table>`;
+    }
+    explainCache[docId] = explainDiv.innerHTML;
+    explainDiv.classList.add('open');
+    el.textContent = 'Hide';
+  } catch (_) {}
+}
+
+async function doSearch() {
+  let q = searchInput.value.trim();
+  if (activeCategory) {
+    q = (q ? q + ' ' : '') + `category:=${activeCategory}`;
+  }
+  if (!q) {
+    resultsInfo.textContent = 'Enter a query to search.';
+    searchResults.innerHTML = '';
+    return;
+  }
+  resultsInfo.textContent = 'Searching…';
+  try {
+    const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ message: 'request failed' }));
+      resultsInfo.textContent = 'Error: ' + (err.message || resp.statusText);
+      searchResults.innerHTML = '';
+      return;
+    }
+    const data = await resp.json();
+    show(resp, data);
+    const hits = data.hits || [];
+    const total = (data.metrics || {}).total_results || 0;
+    resultsInfo.textContent = `${total} result${total !== 1 ? 's' : ''} found`;
+    if (!hits.length) {
+      searchResults.innerHTML = '<p style="color:#888">No matching products.</p>';
+      return;
+    }
+    searchResults.innerHTML = hits.map(renderHit).join('');
+    searchResults.querySelectorAll('.explain-toggle').forEach(el => {
+      el.addEventListener('click', e => {
+        e.preventDefault();
+        toggleExplain(el.dataset.id, el.dataset.query, el);
+      });
+    });
+  } catch (e) {
+    resultsInfo.textContent = 'Error: ' + e.message;
+    searchResults.innerHTML = '';
+  }
+}
+
+seedBtn.addEventListener('click', async () => {
+  seedBtn.textContent = 'Seeding…';
+  try {
+    const resp = await fetch('/api/search/seed', { method: 'POST' });
+    const data = await resp.json();
+    show(resp, data);
+    seedBtn.textContent = 'Seed';
+    if (resp.ok) doSearch();
+  } catch (e) {
+    seedBtn.textContent = 'Seed';
+  }
+});
+
+searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+searchBtn.addEventListener('click', doSearch);
+
+renderCategoryFilters();
 loadItems();
+doSearch();
 </script>
 </body>
 </html>
