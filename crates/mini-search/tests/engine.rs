@@ -1,4 +1,4 @@
-use mini_search::{Document, Engine, FieldConfig, FieldType, SearchHit, Visibility};
+use mini_search::{Document, Engine, Error, FieldConfig, FieldType, Processor, Result, SearchHit, Visibility};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -359,4 +359,101 @@ fn lookup_redacts_hidden_fields() {
         "visible field preserved in lookup"
     );
     assert!(doc.get("internal_notes").is_none(), "hidden field stripped in lookup");
+}
+
+// --- Pipeline processors ---
+
+struct NoopProcessor;
+
+impl Processor for NoopProcessor {}
+
+struct RejectProcessor {
+    msg: String,
+}
+
+impl Processor for RejectProcessor {
+    fn pre_search(&self, _query: &str) -> Result<String> {
+        Err(Error::invalid_query(self.msg.clone()))
+    }
+}
+
+struct StripProcessor;
+
+impl Processor for StripProcessor {
+    fn post_search(&self, _hits: Vec<SearchHit>) -> Result<Vec<SearchHit>> {
+        Ok(Vec::new())
+    }
+}
+
+struct AppendTagProcessor {
+    tag: String,
+}
+
+impl Processor for AppendTagProcessor {
+    fn pre_search(&self, query: &str) -> Result<String> {
+        Ok(format!("{} {}", query, self.tag))
+    }
+
+    fn post_search(&self, mut hits: Vec<SearchHit>) -> Result<Vec<SearchHit>> {
+        for hit in &mut hits {
+            hit.score *= 2.0;
+        }
+        Ok(hits)
+    }
+}
+
+#[test]
+fn noop_processor_passes_search_through() {
+    let mut engine = Engine::new();
+    engine.configure_fields("meds", cfgs());
+    engine.add_document("meds", doc_a()).unwrap();
+    engine.add_document("meds", doc_b()).unwrap();
+    engine.add_processor(NoopProcessor);
+
+    let (hits, _) = engine.search("meds", "dog").unwrap();
+    assert_eq!(ids(&hits), vec!["d_a"]);
+}
+
+#[test]
+fn pre_search_can_reject_query() {
+    let mut engine = Engine::new();
+    engine.configure_fields("meds", cfgs());
+    engine.add_document("meds", doc_a()).unwrap();
+    engine.add_processor(RejectProcessor { msg: "blocked".to_string() });
+
+    let result = engine.search("meds", "anything");
+    assert!(matches!(result, Err(Error::InvalidQuery { .. })));
+}
+
+#[test]
+fn post_search_can_strip_all_results() {
+    let mut engine = Engine::new();
+    engine.configure_fields("meds", cfgs());
+    engine.add_document("meds", doc_a()).unwrap();
+    engine.add_document("meds", doc_b()).unwrap();
+    engine.add_processor(StripProcessor);
+
+    let (hits, metrics) = engine.search("meds", "dog").unwrap();
+    assert!(hits.is_empty());
+    assert_eq!(metrics.total_results, 0);
+}
+
+#[test]
+fn multiple_processors_compose_in_order() {
+    let mut engine = Engine::new();
+    let mut cfgs = HashMap::new();
+    cfgs.insert("notes".to_string(), FieldConfig::new(FieldType::Text));
+    engine.configure_fields("docs", cfgs);
+    let mut fields = HashMap::new();
+    fields.insert("notes".to_string(), json!("hello world"));
+    engine.add_document("docs", Document::new("d1", fields)).unwrap();
+
+    engine.add_processor(AppendTagProcessor { tag: "world".to_string() });
+    engine.add_processor(AppendTagProcessor { tag: "hello".to_string() });
+
+    let (hits, _) = engine.search("docs", "hello").unwrap();
+    assert_eq!(ids(&hits), vec!["d1"]);
+    // Both processors run: first appends "world", then appends "hello"
+    // Query becomes "hello world hello" which matches the doc
+    assert!(hits[0].score > 0.0);
 }

@@ -7,6 +7,7 @@ mod error;
 mod fields;
 mod index;
 mod numkey;
+mod processor;
 #[cfg(feature = "persist")]
 mod persist;
 #[cfg(feature = "wasm")]
@@ -22,6 +23,7 @@ pub use error::{Error, Result};
 pub use fields::{FieldConfig, FieldType, Visibility};
 pub use index::{Comparison, ExactIndex, InvertedIndex, NumericIndex};
 pub use numkey::NumKey;
+pub use processor::Processor;
 pub use query::{Filter, Query, TextClause};
 pub use score::score_text;
 pub use tokenizer::Tokenizer;

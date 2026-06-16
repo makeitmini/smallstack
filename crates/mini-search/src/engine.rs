@@ -4,6 +4,7 @@ use crate::error::{Error, Result};
 use crate::fields::{FieldConfig, FieldType, Visibility};
 use crate::index::{ExactIndex, InvertedIndex, NumericIndex};
 use crate::numkey::NumKey;
+use crate::processor::Processor;
 use crate::query::{Filter, Query};
 use crate::score::score_text;
 use crate::tokenizer::Tokenizer;
@@ -24,7 +25,6 @@ pub struct SearchMetrics {
     pub total_results: usize,
 }
 
-#[derive(Debug)]
 pub struct Engine {
     pub(crate) documents: HashMap<String, HashMap<String, Document>>,
     pub(crate) field_configs: HashMap<String, HashMap<String, FieldConfig>>,
@@ -34,6 +34,37 @@ pub struct Engine {
     pub(crate) tokenizer: Tokenizer,
     #[cfg(feature = "persist")]
     pub(crate) storage_dir: Option<PathBuf>,
+    pipeline: Vec<Box<dyn Processor>>,
+}
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(not(feature = "persist"))]
+        {
+            f.debug_struct("Engine")
+                .field("documents", &self.documents)
+                .field("field_configs", &self.field_configs)
+                .field("inverted", &self.inverted)
+                .field("numeric", &self.numeric)
+                .field("exact", &self.exact)
+                .field("tokenizer", &self.tokenizer)
+                .field("pipeline_len", &self.pipeline.len())
+                .finish()
+        }
+        #[cfg(feature = "persist")]
+        {
+            f.debug_struct("Engine")
+                .field("documents", &self.documents)
+                .field("field_configs", &self.field_configs)
+                .field("inverted", &self.inverted)
+                .field("numeric", &self.numeric)
+                .field("exact", &self.exact)
+                .field("tokenizer", &self.tokenizer)
+                .field("pipeline_len", &self.pipeline.len())
+                .field("storage_dir", &self.storage_dir)
+                .finish()
+        }
+    }
 }
 
 impl Engine {
@@ -47,6 +78,7 @@ impl Engine {
             tokenizer: Tokenizer::new(),
             #[cfg(feature = "persist")]
             storage_dir: None,
+            pipeline: Vec::new(),
         }
     }
 
@@ -123,6 +155,10 @@ impl Engine {
         Ok(())
     }
 
+    pub fn add_processor(&mut self, p: impl Processor + 'static) {
+        self.pipeline.push(Box::new(p));
+    }
+
     pub fn lookup(&self, collection: &str, doc_id: &str) -> Option<Document> {
         let cfgs = self.field_configs.get(collection)?;
         let doc = self.documents.get(collection)?.get(doc_id)?;
@@ -139,7 +175,8 @@ impl Engine {
             .get(collection)
             .ok_or_else(|| Error::not_found("collection", collection))?;
 
-        let query = Query::parse(query_str)?;
+        let query_str = self.run_pre_search(query_str)?;
+        let query = Query::parse(&query_str)?;
 
         for filter in &query.filters {
             validate_filter(filter, cfgs)?;
@@ -251,6 +288,8 @@ impl Engine {
             })
             .collect();
 
+        let hits = self.run_post_search(hits)?;
+
         let metrics = SearchMetrics {
             total_results: hits.len(),
         };
@@ -260,6 +299,22 @@ impl Engine {
 }
 
 impl Engine {
+    fn run_pre_search(&self, query_str: &str) -> Result<String> {
+        let mut query = query_str.to_string();
+        for processor in &self.pipeline {
+            query = processor.pre_search(&query)?;
+        }
+        Ok(query)
+    }
+
+    fn run_post_search(&self, hits: Vec<SearchHit>) -> Result<Vec<SearchHit>> {
+        let mut hits = hits;
+        for processor in &self.pipeline {
+            hits = processor.post_search(hits)?;
+        }
+        Ok(hits)
+    }
+
     fn apply_value_boosts(
         &self,
         scored: &mut [(String, f32)],
