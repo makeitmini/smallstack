@@ -381,7 +381,7 @@ async fn static_root_serves_index_html() {
 
     let text = resp.text().await.unwrap();
     assert!(text.contains("Smallstack Demo"));
-    assert!(text.contains("/api/health"));
+    assert!(text.contains("Add Item"));
 }
 
 #[tokio::test]
