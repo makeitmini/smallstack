@@ -1,2 +1,6 @@
 [alias]
 coverage = "llvm-cov"
+
+[registries.mini]
+index = "sparse+https://mini-registry.fly.dev/api/v1/crates/"
+credential-provider = ["cargo:token"]
