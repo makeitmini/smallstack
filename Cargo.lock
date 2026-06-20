@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "mini-static"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "futures-core",
  "http-body",
@@ -778,8 +778,11 @@ dependencies = [
 
 [[package]]
 name = "mini-unified"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
+ "futures-core",
+ "http-body",
+ "http-body-util",
  "hyper",
  "mini-serve",
  "mini-static",

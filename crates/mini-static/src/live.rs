@@ -151,7 +151,7 @@ const LIVERELOAD_SCRIPT: &str = r#"<script>
 (function(){var e=new EventSource('/__mini_reload');e.addEventListener('css',function(){var t=document.querySelectorAll('link[rel="stylesheet"]');for(var n=0;n<t.length;n++){var r=new URL(t[n].href);r.searchParams.set('_',Date.now()),t[n].href=r.toString()}});['html','script','other'].forEach(function(t){e.addEventListener(t,function(){location.reload()})})})();
 </script>"#;
 
-pub(crate) fn start_poller(dir: Arc<PathBuf>, broadcaster: Arc<Broadcaster>) {
+pub fn start_poller(dir: Arc<PathBuf>, broadcaster: Arc<Broadcaster>) {
     tokio::spawn(async move {
         let mut mtimes: HashMap<PathBuf, SystemTime> = HashMap::new();
         let mut first_pass = true;
